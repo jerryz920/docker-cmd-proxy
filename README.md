@@ -1,1 +1,1 @@
-To intercept the docker commands as a proxy.  This is mostly just for toy play and learning.
+A daemon running together with docker, to capture container events
