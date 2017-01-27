@@ -1,0 +1,5 @@
+{
+  "daemon": {
+    "timeout": 4
+  }
+}
