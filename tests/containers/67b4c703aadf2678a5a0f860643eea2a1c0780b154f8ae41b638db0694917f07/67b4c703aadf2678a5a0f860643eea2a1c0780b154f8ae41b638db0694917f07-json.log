@@ -1,0 +1,46 @@
+{"log":"+ dirname /tmp/install-binaries.sh\n","stream":"stderr","time":"2017-01-22T06:47:57.281143135Z"}
+{"log":"+ . /tmp/binaries-commits\n","stream":"stderr","time":"2017-01-22T06:47:57.282433996Z"}
+{"log":"+ TOMLV_COMMIT=9baf8a8a9f2ed20a8e54160840c492f937eeaf9a\n","stream":"stderr","time":"2017-01-22T06:47:57.282458736Z"}
+{"log":"+ RUNC_COMMIT=ac031b5bf1cc92239461125f4c1ffb760522bbf2\n","stream":"stderr","time":"2017-01-22T06:47:57.28246661Z"}
+{"log":"+ CONTAINERD_COMMIT=8517738ba4b82aff5662c97ca4627e7e4d03b531\n","stream":"stderr","time":"2017-01-22T06:47:57.282472318Z"}
+{"log":"+ TINI_COMMIT=v0.13.0\n","stream":"stderr","time":"2017-01-22T06:47:57.282653557Z"}
+{"log":"+ LIBNETWORK_COMMIT=0f534354b813003a754606689722fe253101bc4e\n","stream":"stderr","time":"2017-01-22T06:47:57.282668793Z"}
+{"log":"+ VNDR_COMMIT=f56bd4504b4fad07a357913687fb652ee54bb3b0\n","stream":"stderr","time":"2017-01-22T06:47:57.282675496Z"}
+{"log":"+ RM_GOPATH=0\n","stream":"stderr","time":"2017-01-22T06:47:57.282682085Z"}
+{"log":"+ TMP_GOPATH=\n","stream":"stderr","time":"2017-01-22T06:47:57.282688357Z"}
+{"log":"+ [ -z  ]\n","stream":"stderr","time":"2017-01-22T06:47:57.282694345Z"}
+{"log":"+ mktemp -d\n","stream":"stderr","time":"2017-01-22T06:47:57.282991379Z"}
+{"log":"+ export GOPATH=/tmp/tmp.ptLrS8fyl6\n","stream":"stderr","time":"2017-01-22T06:47:57.28440883Z"}
+{"log":"+ RM_GOPATH=1\n","stream":"stderr","time":"2017-01-22T06:47:57.284444105Z"}
+{"log":"+ RUNC_BUILDTAGS=seccomp apparmor selinux\n","stream":"stderr","time":"2017-01-22T06:47:57.284452321Z"}
+{"log":"+ echo Install tomlv version 9baf8a8a9f2ed20a8e54160840c492f937eeaf9a\n","stream":"stderr","time":"2017-01-22T06:47:57.284464487Z"}
+{"log":"+ git clone https://github.com/BurntSushi/toml.git /tmp/tmp.ptLrS8fyl6/src/github.com/BurntSushi/toml\n","stream":"stderr","time":"2017-01-22T06:47:57.284479333Z"}
+{"log":"Install tomlv version 9baf8a8a9f2ed20a8e54160840c492f937eeaf9a\n","stream":"stdout","time":"2017-01-22T06:47:57.284657752Z"}
+{"log":"Cloning into '/tmp/tmp.ptLrS8fyl6/src/github.com/BurntSushi/toml'...\n","stream":"stderr","time":"2017-01-22T06:47:57.303374364Z"}
+{"log":"+ cd /tmp/tmp.ptLrS8fyl6/src/github.com/BurntSushi/toml\n","stream":"stderr","time":"2017-01-22T06:47:57.854621837Z"}
+{"log":"+ git checkout -q 9baf8a8a9f2ed20a8e54160840c492f937eeaf9a\n","stream":"stderr","time":"2017-01-22T06:47:57.854656564Z"}
+{"log":"+ go build -v -o /usr/local/bin/tomlv github.com/BurntSushi/toml/cmd/tomlv\n","stream":"stderr","time":"2017-01-22T06:47:57.864443293Z"}
+{"log":"github.com/BurntSushi/toml\n","stream":"stderr","time":"2017-01-22T06:47:57.988957552Z"}
+{"log":"github.com/BurntSushi/toml/cmd/tomlv\n","stream":"stderr","time":"2017-01-22T06:47:58.344824483Z"}
+{"log":"+ echo Install vndr version f56bd4504b4fad07a357913687fb652ee54bb3b0\n","stream":"stderr","time":"2017-01-22T06:47:58.5816844Z"}
+{"log":"+ git clone https://github.com/LK4D4/vndr.git /tmp/tmp.ptLrS8fyl6/src/github.com/LK4D4/vndr\n","stream":"stderr","time":"2017-01-22T06:47:58.581718131Z"}
+{"log":"Install vndr version f56bd4504b4fad07a357913687fb652ee54bb3b0\n","stream":"stdout","time":"2017-01-22T06:47:58.581771867Z"}
+{"log":"Cloning into '/tmp/tmp.ptLrS8fyl6/src/github.com/LK4D4/vndr'...\n","stream":"stderr","time":"2017-01-22T06:47:58.583709536Z"}
+{"log":"+ cd /tmp/tmp.ptLrS8fyl6/src/github.com/LK4D4/vndr\n","stream":"stderr","time":"2017-01-22T06:47:59.033842288Z"}
+{"log":"+ git checkout -q f56bd4504b4fad07a357913687fb652ee54bb3b0\n","stream":"stderr","time":"2017-01-22T06:47:59.03387358Z"}
+{"log":"+ go build -v -o /usr/local/bin/vndr .\n","stream":"stderr","time":"2017-01-22T06:47:59.041168515Z"}
+{"log":"github.com/LK4D4/vndr/godl/singleflight\n","stream":"stderr","time":"2017-01-22T06:47:59.250922821Z"}
+{"log":"github.com/LK4D4/vndr/build\n","stream":"stderr","time":"2017-01-22T06:47:59.253706888Z"}
+{"log":"github.com/LK4D4/vndr/godl\n","stream":"stderr","time":"2017-01-22T06:47:59.283322116Z"}
+{"log":"github.com/LK4D4/vndr\n","stream":"stderr","time":"2017-01-22T06:47:59.538632172Z"}
+{"log":"+ install_runc static\n","stream":"stderr","time":"2017-01-22T06:48:00.217472107Z"}
+{"log":"+ echo Install runc version ac031b5bf1cc92239461125f4c1ffb760522bbf2\n","stream":"stderr","time":"2017-01-22T06:48:00.217529177Z"}
+{"log":"+ git clone https://github.com/docker/runc.git /tmp/tmp.ptLrS8fyl6/src/github.com/opencontainers/runc\n","stream":"stderr","time":"2017-01-22T06:48:00.21753877Z"}
+{"log":"Install runc version ac031b5bf1cc92239461125f4c1ffb760522bbf2\n","stream":"stdout","time":"2017-01-22T06:48:00.217493638Z"}
+{"log":"Cloning into '/tmp/tmp.ptLrS8fyl6/src/github.com/opencontainers/runc'...\n","stream":"stderr","time":"2017-01-22T06:48:00.219516285Z"}
+{"log":"+ cd /tmp/tmp.ptLrS8fyl6/src/github.com/opencontainers/runc\n","stream":"stderr","time":"2017-01-22T06:48:01.792697674Z"}
+{"log":"+ git remote add fork https://github.com/jerryz920/runc\n","stream":"stderr","time":"2017-01-22T06:48:01.792747808Z"}
+{"log":"+ git fetch\n","stream":"stderr","time":"2017-01-22T06:48:01.795231242Z"}
+{"log":"+ git checkout -b dev fork/master\n","stream":"stderr","time":"2017-01-22T06:48:02.084050866Z"}
+{"log":"fatal: Cannot update paths and switch to branch 'dev' at the same time.\n","stream":"stderr","time":"2017-01-22T06:48:02.086902709Z"}
+{"log":"Did you intend to checkout 'fork/master' which can not be resolved as commit?\n","stream":"stderr","time":"2017-01-22T06:48:02.086928755Z"}
