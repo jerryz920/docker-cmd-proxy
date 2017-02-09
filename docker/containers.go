@@ -1,4 +1,4 @@
-package types
+package docker
 
 import (
 	"log"

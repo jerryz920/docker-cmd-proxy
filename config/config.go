@@ -13,11 +13,19 @@ const (
 )
 
 type DaemonConfig struct {
-	Timeout time.Duration `json omitempty`
+	Timeout       time.Duration `json omitempty`
+	ImagePath     string        `json omitempty`
+	ContainerPath string        `json omitempty`
+}
+
+type MetadataServiceConfig struct {
+	Protocol string `json omitempty`
+	Address  string `json omitempty`
 }
 
 type TapconConfig struct {
-	Daemon DaemonConfig
+	Daemon   DaemonConfig
+	Metadata MetadataServiceConfig
 }
 
 var Config *TapconConfig

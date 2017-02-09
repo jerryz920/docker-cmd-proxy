@@ -15,7 +15,16 @@ func main() {
 	args := flag.Args()
 	config.InitConf(".")
 
-	monitor := daemon.InitMonitor(args[0])
+	containerPath = config.Daemon.ContainerPath
+	imagePath = config.Daemon.ImagePath
+	if len(args) >= 1 {
+		containerPath = args[0]
+	}
+	if len(args) >= 2 {
+		imagePath = args[1]
+	}
+
+	monitor := daemon.InitMonitor(containerPath, imagePath)
 	defer monitor.Close()
 
 	sigchan := make(chan os.Signal)

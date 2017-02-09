@@ -8,6 +8,7 @@ import (
 	"time"
 
 	docker "github.com/docker/docker/container"
+	docker_image "github.com/docker/docker/image"
 	"github.com/fsnotify/fsnotify"
 	tapcon_config "github.com/jerryz920/tapcon-monitor/config"
 	tapcon_container "github.com/jerryz920/tapcon-monitor/docker"
@@ -23,36 +24,42 @@ const (
 )
 
 type ContainerMonitor struct {
-	Watcher    *fsnotify.Watcher
-	Path       string
-	Containers map[string]*docker.Container
-	LastUpdate time.Time
-	timeout    time.Duration
+	Watcher      *fsnotify.Watcher
+	ImageWatcher *fsnotify.Watcher
+	Path         string
+	Containers   map[string]*docker.Container
+	Repo         *tapcon_container.Repo
+	Images       map[string]*docker_image.Images
+	LastUpdate   time.Time
+	timeout      time.Duration
 }
 
-func monitorContainerDir(path string) *fsnotify.Watcher {
+func monitorDir(path string) *fsnotify.Watcher {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		log.Fatalf("can not create watcher: %v\n", err)
 	}
 	if err := watcher.Add(path); err != nil {
-		log.Fatalf("can not monitor container path %s\n", path)
+		log.Fatalf("can not monitor path %s\n", path)
 	}
 	return watcher
 }
 
-func InitMonitor(path string) *ContainerMonitor {
+func InitMonitor(path string, image_path string) *ContainerMonitor {
 	clean_path, err := filepath.Abs(path)
 	if err != nil {
 		log.Fatalf("can not convert the path %s to absolute path: %v\n",
 			path, err)
 	}
+	clean_image_path, err := filepath.Abs(image_path)
+
 	return &ContainerMonitor{
-		Watcher:    monitorContainerDir(clean_path),
-		Path:       clean_path,
-		LastUpdate: time.Now(),
-		Containers: make(map[string]*docker.Container),
-		timeout:    tapcon_config.Config.Daemon.Timeout * time.Second,
+		Watcher:     monitorDir(clean_path),
+		ImageWacher: monitorDir(clean_image_path),
+		Path:        clean_path,
+		LastUpdate:  time.Now(),
+		Containers:  make(map[string]*docker.Container),
+		timeout:     tapcon_config.Config.Daemon.Timeout * time.Second,
 	}
 }
 
@@ -80,6 +87,12 @@ func (m *ContainerMonitor) Scan() {
 		log.Fatalln("error reading container root %s: %s", m.Path, err)
 	}
 
+	m.ReloadImageRepo()
+}
+
+func (m *ContainerMonitor) ReloadImageRepo() {
+
+	m.Repo = tapcon_container.LoadImageRepos(m.Path)
 }
 
 func (m *ContainerMonitor) SyncContainers(current map[string]bool) {
@@ -238,6 +251,10 @@ func (m *ContainerMonitor) handleContainerEvent(event fsnotify.Event) {
 	}
 }
 
+func (m *ContainerMonitor) handleImageEvent(event fsnotify.Event) {
+
+}
+
 func (m *ContainerMonitor) WaitForEvent(sigchan chan os.Signal) {
 	for {
 		select {
@@ -245,10 +262,14 @@ func (m *ContainerMonitor) WaitForEvent(sigchan chan os.Signal) {
 			m.Scan()
 		case event := <-m.Watcher.Events:
 			m.handleContainerEvent(event)
+		case event := <-m.ImageWatcher.Events:
+			m.handleImageEvent(event)
 		case <-sigchan:
 			m.inspect()
 		case err := <-m.Watcher.Errors:
 			log.Println("error occurs ", err)
+		case err := <-m.ImageWatcher.Errors:
+			log.Println("image error occurs", err)
 		}
 	}
 }
