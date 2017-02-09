@@ -29,7 +29,7 @@ type ContainerMonitor struct {
 	Path         string
 	Containers   map[string]*docker.Container
 	Repo         *tapcon_container.Repo
-	Images       map[string]*docker_image.Images
+	Images       map[string]*docker_image.Image
 	LastUpdate   time.Time
 	timeout      time.Duration
 }
