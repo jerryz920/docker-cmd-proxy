@@ -8,23 +8,35 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	docker_image "github.com/docker/docker/image"
 )
 
 const (
 	IMAGE_PATH         = "image/aufs"
-	IMAGE_CONTENT_PATH = "image/aufs/imagedb/content/sha256/"
-	IMAGE_REPO_FILE    = "repository.json"
+	IMAGE_CONTENT_PATH = "imagedb/content/sha256/"
+	IMAGE_REPO_FILE    = "repositories.json"
 	REPO_NAME          = "Repositories"
 )
+
+/// names are ugly, rename things later
+type MemImage struct {
+	Config        *docker_image.Image
+	Id            string
+	Root          string
+	IsTapconImage bool
+	Mutex         *sync.Mutex
+}
 
 type Image struct {
 	Versions map[string]string
 }
 
 type Repo struct {
-	Images map[string]Image
+	Images     map[string]Image
+	lastUpdate time.Time
 }
 
 type ParseError struct{ msg string }
@@ -49,6 +61,40 @@ func (r *Repo) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func NewMemImage(root, id string) *MemImage {
+	return &MemImage{
+		Config:        nil,
+		Id:            id,
+		Root:          root,
+		Mutex:         &sync.Mutex{},
+		IsTapconImage: true,
+	}
+}
+
+func (i *MemImage) Load() error {
+	/// We don't reload the config
+	i.Mutex.Lock()
+	defer i.Mutex.Unlock()
+	if !i.IsTapconImage {
+		return nil
+	}
+	if i.Config != nil {
+		return nil
+	}
+	conf, err := LoadImage(i.Root, i.Id)
+	if err != nil {
+		return err
+	}
+	i.Config = conf
+	return nil
+}
+
+func (i *MemImage) Dump() {
+	log.Printf("-----ImageId: %s\n", i.Id)
+	log.Printf("root: %s\n", i.Root)
+	log.Printf("Source: %v\n", i.Config.Source)
+}
+
 func parseVersion(version string) (string, error) {
 	/// Id is in form of "sha256:<real_id>"
 	parts := strings.Split(version, ":")
@@ -71,6 +117,7 @@ func GetAllImageIds(r *Repo) []string {
 			id, err := parseVersion(version)
 			if err != nil {
 				fmt.Printf("parsing: %v\n", err)
+				continue
 			}
 			result = append(result, id)
 		}
@@ -79,27 +126,53 @@ func GetAllImageIds(r *Repo) []string {
 }
 
 func imageRepoFile(root string) string {
-	return path.Join(root, IMAGE_PATH, IMAGE_REPO_FILE)
+	return path.Join(root, IMAGE_REPO_FILE)
 }
 
-func LoadImageRepos(root string) (*Repo, error) {
-	repoFile, err := os.Open(imageRepoFile(root))
+func NeedReload(r *Repo, imageRoot string) bool {
+	repoFile, err := os.Open(imageRepoFile(imageRoot))
+	defer repoFile.Close()
 	if err != nil {
-		log.Printf("can not open image repositories: %v\n", err)
+		log.Printf("can not open image repositories: %v\n", err.Error())
+		return false
+	}
+	stat, err := repoFile.Stat()
+	if err != nil {
+		log.Printf("can not stat image repositories: %v\n", err.Error())
+		return false
+	}
+	if r.lastUpdate.Before(stat.ModTime()) {
+		return true
+	}
+	return false
+}
+
+func LoadImageRepos(imageRoot string) (*Repo, error) {
+	repoFile, err := os.Open(imageRepoFile(imageRoot))
+	defer repoFile.Close()
+	if err != nil {
+		log.Printf("can not open image repositories: %v\n", err.Error())
 		return nil, err
 	}
 
 	d := json.NewDecoder(repoFile)
-	repo := &Repo{}
-	if err := d.Decode(repo); err != nil {
-		log.Printf("can not decode image repo config: %v\n", err)
+	repos := make(map[string]*Repo)
+	if err := d.Decode(&repos); err != nil {
+		log.Printf("can not decode image repo config: %v\n", err.Error())
 		return nil, err
 	}
+	repo := repos[REPO_NAME]
+	stat, err := repoFile.Stat()
+	if err != nil {
+		return nil, err
+	}
+	repo.lastUpdate = stat.ModTime()
+
 	return repo, nil
 }
 
-func LoadImage(root, name string) (*docker_image.Image, error) {
-	p := path.Join(root, IMAGE_CONTENT_PATH, name)
+func LoadImage(imageRoot, name string) (*docker_image.Image, error) {
+	p := path.Join(imageRoot, IMAGE_CONTENT_PATH, name)
 	content, err := ioutil.ReadFile(p)
 	if err != nil {
 		return nil, err

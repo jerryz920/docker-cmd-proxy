@@ -1,7 +1,6 @@
 {
   "daemon": {
-    "timeout": 4,
-    "containerPath": "/var/lib/docker/container",
-    "imagePath": "/var/lib/docker/image/aufs"
+    "timeout": 10,
+    "container_root": "/var/lib/docker/"
   }
 }

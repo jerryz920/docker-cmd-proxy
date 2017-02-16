@@ -1,0 +1,124 @@
+{
+    "AppArmorProfile": "",
+    "Args": [
+        "master"
+    ],
+    "Config": {
+        "AttachStderr": false,
+        "AttachStdin": false,
+        "AttachStdout": false,
+        "Cmd": [
+            "master"
+        ],
+        "Domainname": "",
+        "Entrypoint": [
+            "/root/entrypoint.sh"
+        ],
+        "Env": [
+            "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "SPARK_VERSION=1.5.1",
+            "HADOOP_VERSION=2.6",
+            "SPARK_HOME=/opt/spark-1.5.1",
+            "SPARK_MASTER_PORT=7077",
+            "SPARK_WEBUI_PORT=8080"
+        ],
+        "ExposedPorts": {
+            "7077/tcp": {},
+            "8080/tcp": {}
+        },
+        "Hostname": "spark-master",
+        "Image": "cloudsuite/spark",
+        "Labels": {
+            "com.docker.swarm.id": "64641c9cc86a61305c21ed0675cb0b72ff963b6b67df1513c8431bd59804d1ed"
+        },
+        "OnBuild": null,
+        "OpenStdin": false,
+        "StdinOnce": false,
+        "Tty": false,
+        "User": "",
+        "Volumes": null,
+        "WorkingDir": ""
+    },
+    "Created": "2017-02-13T09:16:30.528351439Z",
+    "Driver": "aufs",
+    "HasBeenManuallyStopped": false,
+    "HasBeenStartedBefore": true,
+    "HostnamePath": "/var/lib/docker/containers/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178/hostname",
+    "HostsPath": "/var/lib/docker/containers/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178/hosts",
+    "ID": "cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178",
+    "Image": "sha256:dfff984e1bb04e6fddcb11bcbb79af3f104b88e7919474e68d0bfa2662bffde4",
+    "LogPath": "/var/lib/docker/containers/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178-json.log",
+    "Managed": false,
+    "MountLabel": "",
+    "MountPoints": {},
+    "Name": "/spark-master",
+    "NetworkSettings": {
+        "Bridge": "",
+        "HairpinMode": false,
+        "HasSwarmEndpoint": false,
+        "IsAnonymousEndpoint": false,
+        "LinkLocalIPv6Address": "",
+        "LinkLocalIPv6PrefixLen": 0,
+        "Networks": {
+            "spark-net": {
+                "Aliases": [
+                    "cb58363fafe0"
+                ],
+                "EndpointID": "c6f68993161f965b596eda97ed1158808fb61360c8a21e8629e748be4ac01b49",
+                "Gateway": "",
+                "GlobalIPv6Address": "",
+                "GlobalIPv6PrefixLen": 0,
+                "IPAMConfig": null,
+                "IPAMOperational": false,
+                "IPAddress": "10.0.0.2",
+                "IPPrefixLen": 24,
+                "IPv6Gateway": "",
+                "Links": null,
+                "MacAddress": "02:42:0a:00:00:02",
+                "NetworkID": "842adb2a1657dade06d2814b059b074f146648391fc52cda75f47cad877de7d8"
+            }
+        },
+        "Ports": {
+            "7077/tcp": [
+                {
+                    "HostIp": "0.0.0.0",
+                    "HostPort": "32769"
+                }
+            ],
+            "8080/tcp": [
+                {
+                    "HostIp": "0.0.0.0",
+                    "HostPort": "32768"
+                }
+            ]
+        },
+        "SandboxID": "69e99b728e55dbf8eb6cf85b2992db401055a2f4ca7fbd621c62dcb55801af1d",
+        "SandboxKey": "/var/run/docker/netns/69e99b728e55",
+        "SecondaryIPAddresses": null,
+        "SecondaryIPv6Addresses": null,
+        "Service": null
+    },
+    "NoNewPrivileges": false,
+    "Path": "/root/entrypoint.sh",
+    "ProcessLabel": "",
+    "ResolvConfPath": "/var/lib/docker/containers/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178/resolv.conf",
+    "RestartCount": 0,
+    "SeccompProfile": "",
+    "SecretReferences": null,
+    "ShmPath": "/var/lib/docker/containers/cb58363fafe0215470db3b7d889ea315ed6a1f009577a56c25530fd335e05178/shm",
+    "State": {
+        "Dead": false,
+        "Error": "",
+        "ExitCode": 0,
+        "FinishedAt": "0001-01-01T00:00:00Z",
+        "Health": null,
+        "OOMKilled": false,
+        "Paused": false,
+        "Pid": 3856,
+        "RemovalInProgress": false,
+        "Restarting": false,
+        "Running": true,
+        "StartedAt": "2017-02-13T09:16:31.664830363Z"
+    },
+    "StreamConfig": {}
+}

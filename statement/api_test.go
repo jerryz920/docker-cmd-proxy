@@ -138,6 +138,18 @@ func HandleListPrincipals(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, principalList)
 }
 
+func HandleNsName(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "myns")
+}
+
+func HandleViewLocalIP(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "192.168.0.1")
+}
+
+func HandleViewPublicIP(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "128.104.105.162")
+}
+
 type Handler func(http.ResponseWriter, *http.Request)
 
 func checkFieldsFunc(fields map[string]string) func(http.ResponseWriter, *http.Request) {
@@ -164,6 +176,9 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	dispatcher_table := map[string]Handler{
 		kUploadVmImage:     HandleUploadVmImage,
 		kViewPrincipalName: HandleViewPrincipalName,
+		kViewNs:            HandleNsName,
+		kViewLocalIP:       HandleViewLocalIP,
+		kViewPublicIP:      HandleViewPublicIP,
 		kPostProof:         HandlePostProof,
 		kLinkProof:         HandleLinkProof,
 		kListPrincipals:    HandleListPrincipals,
@@ -289,6 +304,14 @@ func TestMyId(t *testing.T) {
 	assert.Equal(t, s, "myname", "return value should be equal")
 }
 
+func TestMyNs(t *testing.T) {
+	s, err := api.MyNs()
+	if err != nil {
+		t.Fatalf("error view NS: %v", err)
+	}
+	assert.Equal(t, s, "myns", "return value should be equal")
+}
+
 func TestCreatePrincipal(t *testing.T) {
 	err := api.CreatePrincipal("target")
 	if err != nil {
@@ -380,4 +403,20 @@ func TestLinkProof(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error %v", err)
 	}
+}
+
+func TestGetLocalIP(t *testing.T) {
+	s, err := api.MyLocalIp()
+	if err != nil {
+		t.Fatalf("error listing local ip: %v", err)
+	}
+	assert.EqualValues(t, s, "192.168.0.1", "local ip list")
+}
+
+func TestGetPublicIP(t *testing.T) {
+	s, err := api.MyPublicIp()
+	if err != nil {
+		t.Fatalf("error listing public ip: %v", err)
+	}
+	assert.EqualValues(t, s, "128.104.105.162", "public ip list")
 }

@@ -17,6 +17,7 @@ import (
 type MetadataAPI interface {
 	UploadVmImage(name, location, gitrepo, rev, format string, encoded bool) error
 	MyId() (string, error)
+	MyNs() (string, error)
 	CreatePrincipal(name string) error
 	ListPrincipals() ([]string, error)
 	DeletePrincipal(name string) error
@@ -33,13 +34,19 @@ type MetadataAPI interface {
 
 	PostProof(target string, statements []Statement) error
 	LinkProof(target string, dependencies []string) error
+
+	/// traditional metadata api
+	MyLocalIp() (string, error)
+	MyPublicIp() (string, error)
 }
 
 const (
 	MetadataHost = "169.254.169.254"
 	APIPath      = "openstack/latest/container_api"
+	AwsAPIPath   = "latest/meta-data"
 	/// API endpoints
 	kUploadVmImage     = "/upload_tapcon_image"
+	kViewNs            = "/query_iaas_ns"
 	kViewPrincipalName = "/view_principal_name"
 	kPostProof         = "/post_proofs"
 	kLinkProof         = "/link_proofs"
@@ -54,6 +61,9 @@ const (
 	kDeleteIPAlias     = "/delete_ip_alias"
 	kCreatePortAlias   = "/create_port_alias"
 	kDeletePortAlias   = "/delete_port_alias"
+	// traditional AWS api:
+	kViewLocalIP  = "/local-ipv4"
+	kViewPublicIP = "/public-ipv4"
 
 	/// Query parameters
 	qImageGitRepo    = "image_git"
@@ -115,6 +125,9 @@ func jsonResp(resp *http.Response) ([]string, error) {
 }
 
 func NewOpenstackMetadataAPI(addr string) MetadataAPI {
+	if addr == "" {
+		addr = MetadataHost
+	}
 	api := &Api{serverAddr: addr}
 
 	tr := &http.Transport{
@@ -176,7 +189,15 @@ func (e *Base64FileReader) Read(data []byte) (int, error) {
 }
 
 func (api *Api) GetAPI(schema, apiName string) string {
-	return fmt.Sprintf("%s://%s/%s%s", schema, api.serverAddr, APIPath, apiName)
+	url := fmt.Sprintf("%s://%s/%s%s", schema, api.serverAddr, APIPath, apiName)
+	log.Printf("meta api: %s\n", url)
+	return url
+}
+
+func (api *Api) GetAwsAPI(schema, apiName string) string {
+	url := fmt.Sprintf("%s://%s/%s%s", schema, api.serverAddr, AwsAPIPath, apiName)
+	log.Printf("aws api: %s\n", url)
+	return url
 }
 
 type urlQuery struct {
@@ -237,6 +258,22 @@ func (api *Api) DoGet(apiname string, queries []urlQuery) (*http.Response, error
 	return api.client.Do(req)
 }
 
+func (api *Api) DoAwsGet(apiname string, queries []urlQuery) (*http.Response, error) {
+	req, err := http.NewRequest(http.MethodGet, api.GetAwsAPI("http", apiname), nil)
+	if err != nil {
+		log.Printf("error in constructing request: %v\n", err)
+		return nil, err
+	}
+	if len(queries) > 0 {
+		query := req.URL.Query()
+		for _, q := range queries {
+			query.Add(q.name, q.value)
+		}
+		req.URL.RawQuery = query.Encode()
+	}
+	return api.client.Do(req)
+}
+
 func (api *Api) UploadVmImage(name, location, gitrepo, gitrev, format string, encoded bool) error {
 
 	/// read the data first and convert it to
@@ -275,6 +312,15 @@ func (api *Api) MyId() (string, error) {
 	resp, err := api.DoGet(kViewPrincipalName, pack())
 	if err != nil {
 		fmt.Printf("error in view principal ID: %v\n", err)
+		return "", err
+	}
+	return strResp(resp)
+}
+
+func (api *Api) MyNs() (string, error) {
+	resp, err := api.DoGet(kViewNs, pack())
+	if err != nil {
+		fmt.Printf("error in view NS ID: %v\n", err)
 		return "", err
 	}
 	return strResp(resp)
@@ -421,4 +467,22 @@ func (api *Api) LinkProof(target string, dependencies []string) error {
 		return err
 	}
 	return ok(resp)
+}
+
+func (api *Api) MyLocalIp() (string, error) {
+	resp, err := api.DoAwsGet(kViewLocalIP, pack())
+	if err != nil {
+		fmt.Printf("error in view local IP: %v\n", err)
+		return "", err
+	}
+	return strResp(resp)
+}
+
+func (api *Api) MyPublicIp() (string, error) {
+	resp, err := api.DoAwsGet(kViewPublicIP, pack())
+	if err != nil {
+		fmt.Printf("error in view public IP: %v\n", err)
+		return "", err
+	}
+	return strResp(resp)
 }

@@ -16,3 +16,24 @@ func EstimateJsonBufferCap(nstmt []Statement) int {
 	}
 	return s
 }
+
+type IpAlias struct {
+	NsName string `json:"ns_name"`
+	Ip     string `json:"ip"`
+}
+
+type ProtocolPorts struct {
+	Tcp [][2]int `json:"tcp"`
+	Udp [][2]int `json:"udp"`
+}
+
+type PortAlias struct {
+	NsName string `json:"ns_name"`
+	Ip     string `json:"ip"`
+	Ports  ProtocolPorts
+}
+
+type PortAliases struct {
+	Ips   []IpAlias   `json:"ips"`
+	Ports []PortAlias `json:"ports,omitempty"`
+}
