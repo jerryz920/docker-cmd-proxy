@@ -25,6 +25,7 @@ const (
 type MemImage struct {
 	Config        *docker_image.Image
 	Id            string
+	Hash          string // hash method, we assume it's sha256
 	Root          string
 	IsTapconImage bool
 	Mutex         *sync.Mutex
@@ -65,6 +66,7 @@ func NewMemImage(root, id string) *MemImage {
 	return &MemImage{
 		Config:        nil,
 		Id:            id,
+		Hash:          "sha256",
 		Root:          root,
 		Mutex:         &sync.Mutex{},
 		IsTapconImage: true,

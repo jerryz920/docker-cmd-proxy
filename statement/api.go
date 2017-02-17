@@ -33,7 +33,10 @@ type MetadataAPI interface {
 		portMin, portMax int) error
 
 	PostProof(target string, statements []Statement) error
+	PostProofForChild(target string, statements []Statement) error
 	LinkProof(target string, dependencies []string) error
+	LinkProofForChild(target string, dependencies []string) error
+	SelfCertify(statements []Statement) error
 
 	/// traditional metadata api
 	MyLocalIp() (string, error)
@@ -49,7 +52,10 @@ const (
 	kViewNs            = "/query_iaas_ns"
 	kViewPrincipalName = "/view_principal_name"
 	kPostProof         = "/post_proofs"
+	kPostProofForChild = "/post_proofs_for_child"
 	kLinkProof         = "/link_proofs"
+	kLinkProofForChild = "/link_proofs_for_child"
+	kSelfCertify       = "/self_certify"
 	kCreatePrincipal   = "/create_principal"
 	kDeletePrincipal   = "/delete_principal"
 	kListPrincipals    = "/list_principals"
@@ -433,7 +439,7 @@ func (api *Api) DeletePortAlias(name string, ns string, ip net.IP, protocol stri
 	return ok(resp)
 }
 
-func (api *Api) PostProof(target string, statements []Statement) error {
+func (api *Api) postProof(target string, statements []Statement, apiname string) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	encoder := json.NewEncoder(buf)
 	if err := encoder.Encode(statements); err != nil {
@@ -442,7 +448,7 @@ func (api *Api) PostProof(target string, statements []Statement) error {
 	}
 
 	b64Statements := base64.StdEncoding.EncodeToString(buf.Bytes())
-	resp, err := api.DoPost(kPostProof, nil, pack(qTarget, target,
+	resp, err := api.DoPost(apiname, nil, pack(qTarget, target,
 		qStatements, b64Statements))
 	if err != nil {
 		fmt.Printf("error in posting proofs: %v\n", err)
@@ -451,7 +457,15 @@ func (api *Api) PostProof(target string, statements []Statement) error {
 	return ok(resp)
 }
 
-func (api *Api) LinkProof(target string, dependencies []string) error {
+func (api *Api) PostProof(target string, statements []Statement) error {
+	return api.postProof(target, statements, kPostProof)
+}
+
+func (api *Api) PostProofForChild(target string, statements []Statement) error {
+	return api.postProof(target, statements, kPostProofForChild)
+}
+
+func (api *Api) linkProof(target string, dependencies []string, apiname string) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	encoder := json.NewEncoder(buf)
 	if err := encoder.Encode(dependencies); err != nil {
@@ -460,10 +474,35 @@ func (api *Api) LinkProof(target string, dependencies []string) error {
 	}
 
 	b64Dependencies := base64.StdEncoding.EncodeToString(buf.Bytes())
-	resp, err := api.DoPost(kLinkProof, nil, pack(qTarget, target,
+	resp, err := api.DoPost(apiname, nil, pack(qTarget, target,
 		qDependencies, b64Dependencies))
 	if err != nil {
 		fmt.Printf("error in linking proofs: %v\n", err)
+		return err
+	}
+	return ok(resp)
+}
+
+func (api *Api) LinkProof(target string, dependencies []string) error {
+	return api.linkProof(target, dependencies, kLinkProof)
+}
+
+func (api *Api) LinkProofForChild(target string, dependencies []string) error {
+	return api.linkProof(target, dependencies, kLinkProofForChild)
+}
+
+func (api *Api) SelfCertify(statements []Statement) error {
+	buf := bytes.NewBuffer(make([]byte, 0))
+	encoder := json.NewEncoder(buf)
+	if err := encoder.Encode(statements); err != nil {
+		fmt.Printf("error in encoding statements: %v\n", err)
+		return err
+	}
+
+	b64Statements := base64.StdEncoding.EncodeToString(buf.Bytes())
+	resp, err := api.DoPost(kSelfCertify, nil, pack(qStatements, b64Statements))
+	if err != nil {
+		fmt.Printf("error in posting proofs: %v\n", err)
 		return err
 	}
 	return ok(resp)

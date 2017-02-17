@@ -96,7 +96,7 @@ type Sandbox interface {
 type sandbox struct{}
 
 func (s *sandbox) ContainerChainName(id string) string {
-	return fmt.Sprintf("ctn-%s", id[0:10])
+	return fmt.Sprintf("ctn-%s", id)
 }
 
 func (s *sandbox) SetupContainerChain(id string) error {
@@ -121,7 +121,24 @@ func (s *sandbox) SetupContainerChain(id string) error {
 
 func (s *sandbox) RemoveContainerChain(id string) error {
 	chainName := s.ContainerChainName(id)
-	return exec.Command("iptables", "-t", "nat", "-X", chainName).Run()
+	cmd := exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-j", chainName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("error clearing jumping to static mapping chain: %s", string(out))
+		return err
+	}
+
+	cmd = exec.Command("iptables", "-t", "nat", "-F", chainName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("error clearing static mapping chain: %s", string(out))
+		return err
+	}
+
+	cmd = exec.Command("iptables", "-t", "nat", "-X", chainName)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		log.Printf("error deleting static mapping chain: %s", string(out))
+		return err
+	}
+	return nil
 }
 
 func (s *sandbox) SetupStaticPortMapping(id string, containerIp string,

@@ -95,22 +95,22 @@ func (m *Monitor) setupInstanceIpInfo() {
 	m.localNs = localNs
 }
 
-func (m *Monitor) setupPortMapping(c *MemContainer, pmin int, pmax int) error {
+func (m *Monitor) setupPortMapping(cid string, pmin int, pmax int) error {
 	// Let's make it simple: exposed ports only for the local and public
 	// IPs of the instance, not the overlayed network
-	if err := m.MetadataApi.CreatePortAlias(c.Id, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
 		"tcp", pmin, pmax); err != nil {
 		return err
 	}
-	if err := m.MetadataApi.CreatePortAlias(c.Id, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
 		"udp", pmin, pmax); err != nil {
 		return err
 	}
-	if err := m.MetadataApi.CreatePortAlias(c.Id, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
 		"tcp", pmin, pmax); err != nil {
 		return err
 	}
-	if err := m.MetadataApi.CreatePortAlias(c.Id, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
 		"udp", pmin, pmax); err != nil {
 		return err
 	}

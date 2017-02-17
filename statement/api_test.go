@@ -106,6 +106,31 @@ func HandlePostProof(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "true")
 }
 
+func HandleSelfCertify(w http.ResponseWriter, r *http.Request) {
+	// check condition
+	params := r.URL.Query()
+	decoded, err := base64.StdEncoding.DecodeString(params.Get("statements"))
+	if err != nil {
+		fmt.Fprintf(w, "false: %v", err)
+		return
+	}
+
+	buffer := bytes.NewBuffer(decoded)
+	jdecoder := json.NewDecoder(buffer)
+	var stmts []string
+	if err := jdecoder.Decode(&stmts); err != nil {
+		fmt.Fprintf(w, "false: %v", err)
+		return
+	}
+
+	if !reflect.DeepEqual(stmts, []string{"stmt1", "stmt2", "stmt3"}) {
+		fmt.Fprintf(w, "false: %v", stmts)
+		return
+	}
+
+	fmt.Fprintf(w, "true")
+}
+
 func HandleLinkProof(w http.ResponseWriter, r *http.Request) {
 	params := r.URL.Query()
 	decoded, err := base64.StdEncoding.DecodeString(params.Get("dependencies"))
@@ -181,6 +206,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		kViewPublicIP:      HandleViewPublicIP,
 		kPostProof:         HandlePostProof,
 		kLinkProof:         HandleLinkProof,
+		kSelfCertify:       HandleSelfCertify,
 		kListPrincipals:    HandleListPrincipals,
 		kCreatePrincipal: checkFieldsFunc(
 			map[string]string{"principal": "target"},
@@ -419,4 +445,11 @@ func TestGetPublicIP(t *testing.T) {
 		t.Fatalf("error listing public ip: %v", err)
 	}
 	assert.EqualValues(t, s, "128.104.105.162", "public ip list")
+}
+
+func TestSelfCertify(t *testing.T) {
+	err := api.SelfCertify([]Statement{"stmt1", "stmt2", "stmt3"})
+	if err != nil {
+		t.Fatalf("error %v", err)
+	}
 }

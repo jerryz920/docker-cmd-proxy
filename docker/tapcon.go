@@ -1,7 +1,6 @@
 package docker
 
 import (
-	"encoding/base64"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -9,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -37,6 +37,10 @@ const (
 const (
 	IMAGE_UPDATING = 1
 	IMAGE_IDLE     = 0
+)
+
+const (
+	ID_TRUNCATE_LEN = 13
 )
 
 type Monitor struct {
@@ -146,18 +150,44 @@ func (m *Monitor) resetAllStaticPortSlot() {
 	}
 }
 
+func tapconContainerId(c *MemContainer) string {
+	return c.Id[0:ID_TRUNCATE_LEN]
+}
+
+func tapconContainerImageId(c *MemContainer) string {
+	s := c.Config.ImageID.String()
+	parts := strings.Split(s, ":")
+	if len(parts) >= 2 {
+		return parts[1][0:ID_TRUNCATE_LEN]
+	}
+	return parts[0][0:ID_TRUNCATE_LEN]
+}
+
+func tapconImageId(image *MemImage) string {
+	return image.Id[0:ID_TRUNCATE_LEN]
+}
+
 func (m *Monitor) PostImageProof(image *MemImage) error {
-	imageFact := fmt.Sprintf("imageFact(\"%s\", \"%s\", \"%s\", \"\", \"\")",
-		image.Config.ID().String(), image.Config.Source.Repo, image.Config.Source.Revision)
-	encoded := metadata_api.Statement(base64.StdEncoding.EncodeToString([]byte(imageFact)))
-	return m.MetadataApi.PostProof(image.Config.ID().String(), []metadata_api.Statement{encoded})
+	id := tapconImageId(image)
+	imageFact := metadata_api.Statement(
+		fmt.Sprintf("imageFact(\"%s\", \"%s\", \"%s\", \"\", \"\")",
+			id, image.Config.Source.Repo,
+			image.Config.Source.Revision))
+	return m.MetadataApi.PostProof(id, []metadata_api.Statement{imageFact})
 }
 
 func (m *Monitor) PostContainerFact(c *MemContainer) error {
-	containerFact := fmt.Sprintf("containerFact(\"%s\", \"%s\")", c.Id, c.Config.ImageID.String())
-	encoded := metadata_api.Statement(base64.StdEncoding.EncodeToString([]byte(containerFact)))
-	return m.MetadataApi.PostProof(c.Id, []metadata_api.Statement{encoded})
+	cid := tapconContainerId(c)
+	iid := tapconContainerImageId(c)
+	containerFact := metadata_api.Statement(
+		fmt.Sprintf("containerFact(\"%s\", \"%s\")", cid, iid))
+	return m.MetadataApi.PostProofForChild(cid, []metadata_api.Statement{containerFact})
+}
 
+func (m *Monitor) LinkContainerImage(c *MemContainer) error {
+	cid := tapconContainerId(c)
+	iid := tapconContainerImageId(c)
+	return m.MetadataApi.LinkProofForChild(cid, []string{iid})
 }
 
 func (m *Monitor) allocateStaticPortSlot() (PortRange, error) {
@@ -199,13 +229,9 @@ func (m *Monitor) scanImageUpdate() error {
 			}
 			// Load tapcon principal
 			/// Post the image Proofs
-			if image.Config.Source.Repo == "" {
-				image.IsTapconImage = false
-			} else {
-				if err := m.PostImageProof(image); err != nil {
-					log.Printf("can't post proof for %s: %v\n", id, err)
-					continue
-				}
+			if err := m.PostImageProof(image); err != nil {
+				log.Printf("can't post proof for %s: %v\n", id, err)
+				continue
 			}
 		}
 		newImages[id] = image
@@ -261,15 +287,16 @@ func (m *Monitor) containerEntryContentUpdate(id string) {
 func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 	wasRunning := c.Running()
 	if c.Load() {
-		log.Printf("container %s loaded\n", c.Id)
+		cid := tapconContainerId(c)
+		log.Printf("container %s loaded\n", cid)
 		// do the tapcon related update
 		if wasRunning && !c.Running() {
-			if err := m.MetadataApi.DeletePrincipal(c.Id); err != nil {
-				log.Printf("error deleting principal %s: %v", c.Id, err)
+			if err := m.MetadataApi.DeletePrincipal(cid); err != nil {
+				log.Printf("error deleting principal %s: %v", cid, err)
 			}
 			/// Clear IPtables
-			if err := m.SandboxBuilder.RemoveContainerChain(c.Id); err != nil {
-				log.Printf("removing container chain %s: %v", c.Id, err)
+			if err := m.SandboxBuilder.RemoveContainerChain(cid); err != nil {
+				log.Printf("removing container chain %s: %v", cid, err)
 			}
 		} else if c.Running() {
 			/*
@@ -283,8 +310,8 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 
 			*/
 			if !c.PrincipalCreated {
-				if err := m.MetadataApi.CreatePrincipal(c.Id); err != nil {
-					log.Printf("error in creating principal %s: %v\n", c.Id, err)
+				if err := m.MetadataApi.CreatePrincipal(cid); err != nil {
+					log.Printf("error in creating principal %s: %v\n", cid, err)
 					return
 				}
 				c.PrincipalCreated = true
@@ -292,12 +319,11 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 
 			if !c.ImageLinked {
 				if err := m.PostContainerFact(c); err != nil {
-					log.Printf("error in posting principal fact %s: %v\n", c.Id, err)
+					log.Printf("error in posting principal fact %s: %v\n", cid, err)
 					return
 				}
-				if err := m.MetadataApi.LinkProof(c.Id,
-					[]string{c.Config.ImageID.String()}); err != nil {
-					log.Printf("error in linking principal %s: %v\n", c.Id, err)
+				if err := m.LinkContainerImage(c); err != nil {
+					log.Printf("error in linking principal %s: %v\n", cid, err)
 					return
 				}
 				c.ImageLinked = true
@@ -333,7 +359,7 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 					continue
 				}
 
-				if err := m.MetadataApi.CreateIPAlias(c.Id, nsName,
+				if err := m.MetadataApi.CreateIPAlias(cid, nsName,
 					net.ParseIP(ip)); err != nil {
 					log.Printf("%v\n", err)
 					continue
@@ -353,7 +379,7 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 						hport := int(tmp)
 						// Let's make it simple: exposed ports only for the local and public
 						// IPs of the instance, not the overlayed network
-						m.setupPortMapping(c, hport, hport)
+						m.setupPortMapping(cid, hport, hport)
 						// we assume we have only one binding for any time atm
 						break
 					}
@@ -371,12 +397,16 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 				}
 				c.StaticPortMin = prange.min
 				c.StaticPortMax = prange.max
-				m.setupPortMapping(c, prange.min, prange.max)
+				m.setupPortMapping(cid, prange.min, prange.max)
 
-				m.SandboxBuilder.SetupContainerChain(c.Id)
+				/// In case of stale rules in this chain
+				m.SandboxBuilder.SetupContainerChain(cid)
+				if err := m.SandboxBuilder.ClearStaticPortMapping(cid); err != nil {
+					log.Printf("removing container chain %s: %v", cid, err)
+				}
 				for _, ip := range c.Ips {
 					if c.IsContainerIp(ip) {
-						m.SandboxBuilder.SetupStaticPortMapping(c.Id, ip, prange.min, prange.max)
+						m.SandboxBuilder.SetupStaticPortMapping(cid, ip, prange.min, prange.max)
 					}
 				}
 				c.PortAliasCreated = true
@@ -388,12 +418,13 @@ func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
 		// some error, e.g. container configs stopped. We need to clear the
 		// tapcon principals.
 		if wasRunning && !c.Running() {
-			if err := m.MetadataApi.DeletePrincipal(c.Id); err != nil {
-				log.Printf("error deleting principal %s: %v", c.Id, err)
+			cid := tapconContainerId(c)
+			if err := m.MetadataApi.DeletePrincipal(cid); err != nil {
+				log.Printf("error deleting principal %s: %v", cid, err)
 			}
 			/// Clear IPtables
-			if err := m.SandboxBuilder.RemoveContainerChain(c.Id); err != nil {
-				log.Printf("removing container chain %s: %v", c.Id, err)
+			if err := m.SandboxBuilder.RemoveContainerChain(cid); err != nil {
+				log.Printf("removing container chain %s: %v", cid, err)
 			}
 		}
 	}
