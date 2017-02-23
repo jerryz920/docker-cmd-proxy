@@ -7,7 +7,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -43,6 +42,11 @@ const (
 	ID_TRUNCATE_LEN = 13
 )
 
+type ServerContainerState struct {
+	metadata_api.Principal
+	lock *sync.Mutex
+}
+
 type Monitor struct {
 	Watcher *fsnotify.Watcher
 
@@ -57,11 +61,13 @@ type Monitor struct {
 	ImageMetadataPath      string
 	ImageLockCounter       *sync.Mutex
 	ContainerLock          *sync.Mutex
-	Containers             atomic.Value // map[string]*MemContainer
-	Images                 atomic.Value // map[string]*MemImage
+	Containers             map[string]*MemContainer
+	Images                 map[string]*MemImage
 	Repo                   *Repo
 	LastUpdate             time.Time
 	timeout                time.Duration
+	cache                  ReconcileCache
+	reconcileTimeout       time.Duration
 	postMortemHandler      func(string)
 	staticPortMin          int
 	staticPortMax          int
@@ -72,13 +78,13 @@ type Monitor struct {
 
 	// port management for default network, no need to manage ports for
 	// overlay network
-	availableStaticPorts []bool
+	availableStaticPorts []int32
 
 	tcpPorts map[string][]PortRange
 	udpPorts map[string][]PortRange
 }
 
-func NewMonitor(containerRoot string, timeout time.Duration) (*Monitor, error) {
+func NewMonitor(containerRoot string) (*Monitor, error) {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -105,19 +111,19 @@ func NewMonitor(containerRoot string, timeout time.Duration) (*Monitor, error) {
 		ContainerLock:          &sync.Mutex{},
 		ImageMetadataPath:      imagePath,
 		ImageLockCounter:       &sync.Mutex{},
+		Containers:             make(map[string]*MemContainer),
+		Images:                 make(map[string]*MemImage),
 		Networks:               make([]string, 0),
 		NetworkWorkerQueue:     make([]NetworkDelayFunc, 0),
 		NetworkWorkerLock:      &sync.Mutex{},
 		LastUpdate:             time.Now(),
-		timeout:                timeout,
+		timeout:                tapcon_config.Config.Daemon.Timeout,
 		staticPortMin:          tapcon_config.Config.StaticPortBase,
 		staticPortMax:          tapcon_config.Config.StaticPortMax,
 		staticPortPerContainer: tapcon_config.Config.PortPerContainer,
 	}
-	m.Containers.Store(make(map[string]*MemContainer))
-	m.Images.Store(make(map[string]*MemImage))
 
-	m.availableStaticPorts = make([]bool, (m.staticPortMax-m.staticPortMin)/
+	m.availableStaticPorts = make([]int32, (m.staticPortMax-m.staticPortMin)/
 		m.staticPortPerContainer)
 	m.resetAllStaticPortSlot()
 	m.setupInstanceIpInfo()
@@ -132,11 +138,18 @@ func NewMonitor(containerRoot string, timeout time.Duration) (*Monitor, error) {
 }
 
 func (m *Monitor) staticPortSlotAllocated(i int) bool {
-	return m.availableStaticPorts[i]
+	return atomic.LoadInt32(&m.availableStaticPorts[i]) == 0
 }
 
 func (m *Monitor) deallocateStaticPort(i int) {
-	m.availableStaticPorts[i] = false
+	atomic.StoreInt32(&m.availableStaticPorts[i], 0)
+}
+
+func (m *Monitor) deallocateStaticPortByContainer(c *MemContainer) {
+	index := c.StaticPortMin / m.staticPortPerContainer
+	m.deallocateStaticPort(index)
+	c.StaticPortMin = 0
+	c.StaticPortMax = 0
 }
 
 func (m *Monitor) nStaticPortSlot() int {
@@ -146,8 +159,15 @@ func (m *Monitor) nStaticPortSlot() int {
 func (m *Monitor) resetAllStaticPortSlot() {
 	maxSlot := m.nStaticPortSlot()
 	for i := 0; i < maxSlot; i++ {
-		m.availableStaticPorts[i] = false
+		atomic.StoreInt32(&m.availableStaticPorts[i], 0)
 	}
+}
+
+func tapconStringId(id string) string {
+	if len(id) < ID_TRUNCATE_LEN {
+		return id
+	}
+	return id[0:ID_TRUNCATE_LEN]
 }
 
 func tapconContainerId(c *MemContainer) string {
@@ -177,11 +197,13 @@ func (m *Monitor) PostImageProof(image *MemImage) error {
 }
 
 func (m *Monitor) PostContainerFact(c *MemContainer) error {
+	facts := c.ContainerFacts()
 	cid := tapconContainerId(c)
-	iid := tapconContainerImageId(c)
-	containerFact := metadata_api.Statement(
-		fmt.Sprintf("containerFact(\"%s\", \"%s\")", cid, iid))
-	return m.MetadataApi.PostProofForChild(cid, []metadata_api.Statement{containerFact})
+	if len(facts) > 0 {
+		return m.MetadataApi.PostProofForChild(cid, c.ContainerFacts())
+	}
+	log.Printf("no fact to post for container")
+	return nil
 }
 
 func (m *Monitor) LinkContainerImage(c *MemContainer) error {
@@ -193,8 +215,7 @@ func (m *Monitor) LinkContainerImage(c *MemContainer) error {
 func (m *Monitor) allocateStaticPortSlot() (PortRange, error) {
 	maxSlot := m.nStaticPortSlot()
 	for i := 0; i < maxSlot; i++ {
-		if !m.availableStaticPorts[i] {
-			m.availableStaticPorts[i] = true
+		if atomic.CompareAndSwapInt32(&m.availableStaticPorts[i], 0, 1) {
 			min := m.staticPortMin + i*m.staticPortPerContainer
 			max := m.staticPortMin + (i+1)*m.staticPortPerContainer - 1
 			return PortRange{min: min, max: max}, nil
@@ -213,14 +234,10 @@ func (m *Monitor) scanImageUpdate() error {
 	m.Repo = r
 	/// FIXME: may need to handle images not valid, but still in repositories.json
 	images := GetAllImageIds(m.Repo)
-	curImages := m.Images.Load().(map[string]*MemImage)
-	newImages := make(map[string]*MemImage)
-	needUpdate := len(images) == len(curImages)
 	for _, id := range images {
-		image, ok := curImages[id]
+		image, ok := m.Images[id]
 		if !ok {
 			image = NewMemImage(m.ImageMetadataPath, id)
-			needUpdate = true
 		}
 		if image.Config == nil {
 			if err := image.Load(); err != nil {
@@ -234,12 +251,9 @@ func (m *Monitor) scanImageUpdate() error {
 				continue
 			}
 		}
-		newImages[id] = image
+		m.Images[id] = image
 	}
 
-	if needUpdate {
-		m.Images.Store(newImages)
-	}
 	return nil
 }
 
@@ -253,181 +267,60 @@ func (m *Monitor) containerEntryUpdate(id string, create bool) {
 
 	// we use immutable way to update the in memory handle. It is not a big
 	// overhead to copy a hundred pointers.
-	oldContainers := m.Containers.Load().(map[string]*MemContainer)
-	newContainers := make(map[string]*MemContainer)
+	cid := tapconStringId(id)
 	if create {
-		for k, v := range oldContainers {
-			newContainers[k] = v
-		}
 		root := filepath.Join(m.ContainerMetadataPath, id)
-		tmp := NewMemContainer(id, root)
-		newContainers[id] = tmp
-		m.Watcher.Add(root)
-		/// We may have lost fs event at the moment we start to watch the dir
-		//m.ContainerUpdateChan <- tmp
-		m.doContainerContentUpdate(tmp)
+		m.AllocateNewMemContainer(cid, root)
 	} else {
-		for k, v := range oldContainers {
-			if k != id {
-				newContainers[k] = v
-			}
+		m.ContainerLock.Lock()
+		defer m.ContainerLock.Unlock()
+		if c, ok := m.Containers[cid]; ok {
+			c.EventChan <- CONTAINER_DEAD
 		}
+		delete(m.Containers, cid)
 	}
-	m.Containers.Store(newContainers)
 }
 
-func (m *Monitor) containerEntryContentUpdate(id string) {
-	// We have to load the config every time there is config changes, because
-	// it can be container stop.
-	containers := m.Containers.Load().(map[string]*MemContainer)
-	c := containers[id]
-	m.doContainerContentUpdate(c)
-}
-
-func (m *Monitor) doContainerContentUpdate(c *MemContainer) {
-	wasRunning := c.Running()
-	if c.Load() {
-		cid := tapconContainerId(c)
-		log.Printf("container %s loaded\n", cid)
-		// do the tapcon related update
-		if wasRunning && !c.Running() {
-			if err := m.MetadataApi.DeletePrincipal(cid); err != nil {
-				log.Printf("error deleting principal %s: %v", cid, err)
+func (m *Monitor) Keeper(c *MemContainer) {
+	c.Refresh()
+	cid := tapconContainerId(c)
+	m.SandboxBuilder.SetupContainerChain(cid)
+	/// Apply restriction on container
+	for {
+		select {
+		case e := <-c.EventChan:
+			if e == CONTAINER_DEAD {
+				break
 			}
-			/// Clear IPtables
-			if err := m.SandboxBuilder.RemoveContainerChain(cid); err != nil {
-				log.Printf("removing container chain %s: %v", cid, err)
-			}
-		} else if c.Running() {
-			/*
-			   step1: create principal
-
-			   step2: create any ip alias
-
-			   step3: assign static ports, create port alias, update Iptable rules
-
-			   step4: link proofs of images
-
-			*/
-			if !c.PrincipalCreated {
-				if err := m.MetadataApi.CreatePrincipal(cid); err != nil {
-					log.Printf("error in creating principal %s: %v\n", cid, err)
-					return
-				}
-				c.PrincipalCreated = true
-			}
-
-			if !c.ImageLinked {
-				if err := m.PostContainerFact(c); err != nil {
-					log.Printf("error in posting principal fact %s: %v\n", cid, err)
-					return
-				}
-				if err := m.LinkContainerImage(c); err != nil {
-					log.Printf("error in linking principal %s: %v\n", cid, err)
-					return
-				}
-				c.ImageLinked = true
-			}
-
-			for _, ip := range c.Ips {
-				if ip == LOCALHOST_V4 {
-					continue
-				}
-				nsName, err := c.GetNsName(ip)
-				if err != nil {
-					// we only create alias name for the overlay network
-					continue
-				}
-				// we only need to create ip alias for overlay network
-				isOverlay := false
-				for _, overlay := range m.Networks {
-					if overlay == nsName {
-						isOverlay = true
-					}
-				}
-				if !isOverlay {
-					continue
-				}
-				created := false
-				for _, name := range c.CreatedIpAliases {
-					if name == nsName {
-						created = true
-						break
-					}
-				}
-				if created {
-					continue
-				}
-
-				if err := m.MetadataApi.CreateIPAlias(cid, nsName,
-					net.ParseIP(ip)); err != nil {
-					log.Printf("%v\n", err)
-					continue
-				}
-				c.CreatedIpAliases = append(c.CreatedIpAliases, nsName)
-			}
-
-			if !c.PortAliasCreated && !c.Config.Config.NetworkDisabled {
-				for _, hostBindings := range c.Config.NetworkSettings.Ports {
-					//var cport int = int(strconv.ParseUint(containerPort, 10, 0))
-					for _, binding := range hostBindings {
-						tmp, err := strconv.ParseUint(binding.HostPort, 10, 0)
+			if c.Refresh() != nil {
+				if c.Load() {
+					if c.StaticPortMin == 0 {
+						prange, err := m.allocateStaticPortSlot()
+						m.SandboxBuilder.ClearStaticPortMapping(cid)
 						if err != nil {
-							log.Printf("can not parse host port: %s\n", binding.HostPort)
-							continue
+							log.Printf("unable to allocate static ports, retry later\n")
 						}
-						hport := int(tmp)
-						// Let's make it simple: exposed ports only for the local and public
-						// IPs of the instance, not the overlayed network
-						m.setupPortMapping(cid, hport, hport)
-						// we assume we have only one binding for any time atm
-						break
+						c.StaticPortMin = prange.min
+						c.StaticPortMax = prange.max
+						for _, ip := range c.Ips {
+							if c.IsContainerIp(ip) {
+								m.SandboxBuilder.SetupStaticPortMapping(cid, ip,
+									prange.min, prange.max)
+							}
+						}
 					}
+					c.Cache.Create()
+				} else {
+					c.Cache.Remove()
+					m.SandboxBuilder.ClearStaticPortMapping(cid)
+					m.deallocateStaticPortByContainer(c)
 				}
-
-				/// Assign ports
-				// pmin, pmax = m.AllocatePorts
-				// setupIpTable
-				// createPortAlias()
-				//
-				prange, err := m.allocateStaticPortSlot()
-				if err != nil {
-					log.Printf("can not allocate static port range for it\n")
-					return
-				}
-				c.StaticPortMin = prange.min
-				c.StaticPortMax = prange.max
-				m.setupPortMapping(cid, prange.min, prange.max)
-
-				/// In case of stale rules in this chain
-				m.SandboxBuilder.SetupContainerChain(cid)
-				if err := m.SandboxBuilder.ClearStaticPortMapping(cid); err != nil {
-					log.Printf("removing container chain %s: %v", cid, err)
-				}
-				for _, ip := range c.Ips {
-					if c.IsContainerIp(ip) {
-						m.SandboxBuilder.SetupStaticPortMapping(cid, ip, prange.min, prange.max)
-					}
-				}
-				c.PortAliasCreated = true
-			}
-		}
-
-	} else {
-		// if the config is cleared after the load process, it means there is
-		// some error, e.g. container configs stopped. We need to clear the
-		// tapcon principals.
-		if wasRunning && !c.Running() {
-			cid := tapconContainerId(c)
-			if err := m.MetadataApi.DeletePrincipal(cid); err != nil {
-				log.Printf("error deleting principal %s: %v", cid, err)
-			}
-			/// Clear IPtables
-			if err := m.SandboxBuilder.RemoveContainerChain(cid); err != nil {
-				log.Printf("removing container chain %s: %v", cid, err)
 			}
 		}
 	}
+	m.SandboxBuilder.RemoveContainerChain(cid)
+	/// withdraw restriction on container
+	m.deallocateStaticPortByContainer(c)
 }
 
 func (m *Monitor) containerEntriesReload() {
@@ -438,31 +331,81 @@ func (m *Monitor) containerEntriesReload() {
 		log.Fatalf("error in reading container root: %v\n", err)
 	}
 	// for each containers, probe the container config
-	oldContainers := m.Containers.Load().(map[string]*MemContainer)
-	newContainers := make(map[string]*MemContainer)
-	needUpdate := len(files) == len(oldContainers)
+	/// Download the principal list, then do the update
+	serverState, err := m.MetadataApi.ListPrincipals()
+	if err != nil {
+		log.Printf("update stopped can not fetch server state: %v\n", err)
+	}
+	toDelete := make([]string, 0, len(files))
+
+	m.ContainerLock.Lock()
+	defer m.ContainerLock.Unlock()
+
 	for _, f := range files {
 		if !f.IsDir() {
 			log.Printf("Warning: non-dir file in container root: %s", f.Name())
 			continue
 		}
-		fname := f.Name()
-		if old, ok := oldContainers[fname]; ok {
-			newContainers[fname] = old
-			// we may need to update tapcon principals, do update in unified entrance
-			m.doContainerContentUpdate(old)
+		cid := tapconStringId(f.Name())
+		if c, ok := m.Containers[cid]; ok {
+			c.EventChan <- NEED_UPDATE
 		} else {
-			needUpdate = true
-			tmp := NewMemContainer(fname,
-				filepath.Join(m.ContainerMetadataPath, fname))
-			newContainers[fname] = tmp
-			m.Watcher.Add(tmp.Root)
-			m.doContainerContentUpdate(tmp)
+			root := filepath.Join(m.ContainerMetadataPath, f.Name())
+			m.allocateNewMemContainer(cid, root)
 		}
 	}
-	if needUpdate {
-		m.Containers.Store(newContainers)
+
+	for cid, c := range m.Containers {
+		found := false
+		for _, f := range files {
+			if cid == f.Name() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			toDelete = append(toDelete, cid)
+			c.EventChan <- CONTAINER_DEAD
+		}
 	}
+
+	for _, cid := range toDelete {
+		delete(m.Containers, cid)
+	}
+
+	if serverState != nil {
+		for pname, _ := range serverState {
+			if _, ok := m.Containers[pname]; !ok {
+				log.Printf("staled principal %s\n", pname)
+				m.MetadataApi.DeletePrincipal(pname)
+			}
+		}
+	}
+}
+
+func (m *Monitor) allocateNewMemContainer(id, root string) {
+	c := NewMemContainer(id, root)
+	c.Cache = NewReconcileCache(m.MetadataApi, c)
+	c.VmIps = []instanceIp{
+		instanceIp{
+			ns: m.localNs,
+			ip: m.localIp.String(),
+		},
+		instanceIp{
+			ns: DEFAULT_NS,
+			ip: m.publicIp.String(),
+		},
+	}
+	m.Containers[id] = c
+	m.Watcher.Add(root)
+	go m.Keeper(c)
+	c.EventChan <- NEED_UPDATE
+}
+
+func (m *Monitor) AllocateNewMemContainer(id, root string) {
+	m.ContainerLock.Lock()
+	m.allocateNewMemContainer(id, root)
+	m.ContainerLock.Unlock()
 }
 
 /*
@@ -509,8 +452,17 @@ func (m *Monitor) handleFsEvent(e fsnotify.Event) error {
 		if ContainerConfigFile(fname) {
 			log.Printf("container config change: %s\n", fname)
 			id := ContainerPathToId(path, m.ContainerMetadataPath)
-			//go m.containerEntryContentUpdate(id)
-			m.containerEntryContentUpdate(id)
+			cid := tapconStringId(id)
+
+			m.ContainerLock.Lock()
+			defer m.ContainerLock.Unlock()
+			c, ok := m.Containers[cid]
+			if !ok {
+				log.Printf("container not found! Adding\n")
+				m.allocateNewMemContainer(cid, filepath.Join(m.ContainerMetadataPath, id))
+			} else {
+				c.EventChan <- NEED_UPDATE
+			}
 		}
 	}
 	return nil
@@ -547,6 +499,29 @@ func (m *Monitor) Scan() {
 	m.containerEntriesReload()
 }
 
+func (m *Monitor) WorkAndWait(sigchan chan os.Signal) {
+
+	for {
+		select {
+		case e := <-m.Watcher.Events:
+			if err := m.handleFsEvent(e); err != nil {
+				log.Printf("error handling event %v\n", err)
+			}
+		case e := <-m.Watcher.Errors:
+			log.Printf("error event: %s\n", e.Error())
+			break
+		case <-time.After(m.timeout):
+			log.Printf("timeout %v\n", m.timeout)
+			go m.Scan()
+		case <-time.After(m.reconcileTimeout):
+			// fetch reconcile cache from server
+			//m.Reconcile()
+		case <-sigchan:
+			m.Dump()
+		}
+	}
+}
+
 func (m *Monitor) Dump() {
 	log.Printf("current networks: %v\n", m.Networks)
 	log.Printf("container path %s\n", m.ContainerMetadataPath)
@@ -558,7 +533,7 @@ func (m *Monitor) Dump() {
 		m.localNs)
 	result := make([]string, 0, len(m.availableStaticPorts))
 	for i, p := range m.availableStaticPorts {
-		if p {
+		if p == 0 {
 			pmin := m.staticPortMin + i*m.staticPortPerContainer
 			pmax := pmin + m.staticPortPerContainer - 1
 			result = append(result, fmt.Sprintf("%d-%d", pmin, pmax))
@@ -566,37 +541,15 @@ func (m *Monitor) Dump() {
 	}
 	log.Printf("allocated ports: %v\n", result)
 	log.Printf("****Containers\n")
-	containers := m.Containers.Load().(map[string]*MemContainer)
-	for _, c := range containers {
+	m.ContainerLock.Lock()
+	for _, c := range m.Containers {
 		c.Dump()
 	}
+	m.ContainerLock.Unlock()
 	log.Printf("****Images\n")
-	images := m.Images.Load().(map[string]*MemImage)
-	for _, i := range images {
+	m.ImageLockCounter.Lock()
+	for _, i := range m.Images {
 		i.Dump()
 	}
-}
-
-func (m *Monitor) WorkAndWait(sigchan chan os.Signal) {
-
-	for {
-		select {
-		case e := <-m.Watcher.Events:
-			if err := m.handleFsEvent(e); err != nil {
-				log.Printf("error handling event %v\n", err)
-			}
-		case c := <-m.ContainerUpdateChan:
-			//go m.doContainerContentnUpdate(c)
-			m.doContainerContentUpdate(c)
-		case e := <-m.Watcher.Errors:
-			log.Printf("error event: %s\n", e.Error())
-			break
-		case <-time.After(m.timeout):
-			log.Printf("timeout %v\n", m.timeout)
-			//go m.Scan()
-			m.Scan()
-		case <-sigchan:
-			m.Dump()
-		}
-	}
+	m.ImageLockCounter.Unlock()
 }

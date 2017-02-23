@@ -11,11 +11,19 @@ import (
 	daemon "github.com/jerryz920/tapcon-monitor/docker"
 )
 
+const (
+	pidFile = "/var/run/tapcon.pid"
+)
+
+func daemonize() {
+	/// write pid
+
+}
+
 func main() {
 	flag.Parse()
 	args := flag.Args()
 	config.InitConf(".")
-	conf := config.Config
 
 	containerRoot := conf.Daemon.ContainerRoot
 	if len(args) >= 1 {
@@ -23,7 +31,7 @@ func main() {
 	}
 	log.Printf("container root: %s\n", containerRoot)
 
-	monitor, err := daemon.NewMonitor(containerRoot, conf.Daemon.Timeout)
+	monitor, err := daemon.NewMonitor(containerRoot)
 	if err != nil {
 		log.Fatalf("error allocating new monitor:%s\n", err)
 	}

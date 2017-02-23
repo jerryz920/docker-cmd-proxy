@@ -13,8 +13,9 @@ const (
 )
 
 type DaemonConfig struct {
-	Timeout       time.Duration `json:"timeout,omitempty"`
-	ContainerRoot string        `json:"container_root,omitempty"`
+	Timeout        time.Duration `json:"timeout,omitempty"`
+	RefreshTimeout time.Duration `json:"refresh_timeout,omitempty"`
+	ContainerRoot  string        `json:"container_root,omitempty"`
 }
 
 type MetadataServiceConfig struct {

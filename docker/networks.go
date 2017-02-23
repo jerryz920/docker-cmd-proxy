@@ -106,11 +106,31 @@ func (m *Monitor) setupPortMapping(cid string, pmin int, pmax int) error {
 		"udp", pmin, pmax); err != nil {
 		return err
 	}
-	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, DEFAULT_NS, m.publicIp,
 		"tcp", pmin, pmax); err != nil {
 		return err
 	}
-	if err := m.MetadataApi.CreatePortAlias(cid, m.localNs, m.localIp,
+	if err := m.MetadataApi.CreatePortAlias(cid, DEFAULT_NS, m.publicIp,
+		"udp", pmin, pmax); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *Monitor) tearPortMapping(cid string, pmin int, pmax int) error {
+	if err := m.MetadataApi.DeletePortAlias(cid, m.localNs, m.localIp,
+		"tcp", pmin, pmax); err != nil {
+		return err
+	}
+	if err := m.MetadataApi.DeletePortAlias(cid, m.localNs, m.localIp,
+		"udp", pmin, pmax); err != nil {
+		return err
+	}
+	if err := m.MetadataApi.DeletePortAlias(cid, DEFAULT_NS, m.publicIp,
+		"tcp", pmin, pmax); err != nil {
+		return err
+	}
+	if err := m.MetadataApi.DeletePortAlias(cid, DEFAULT_NS, m.publicIp,
 		"udp", pmin, pmax); err != nil {
 		return err
 	}

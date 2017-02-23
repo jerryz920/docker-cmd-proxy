@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -18,7 +19,8 @@ import (
 )
 
 const (
-	principalList = "[\"p1\", \"p2\", \"p3\"]"
+	principalMapFile = "../examples/principals.json"
+	principalFile    = "../examples/oneprincipal.json"
 )
 
 var (
@@ -160,7 +162,24 @@ func HandleLinkProof(w http.ResponseWriter, r *http.Request) {
 }
 
 func HandleListPrincipals(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, principalList)
+	f, err := os.Open(principalMapFile)
+	if err != nil {
+		log.Fatalf("error occurs opening principal map file: %v\n", err)
+	}
+	io.Copy(w, f)
+}
+
+func HandleShowPrincipal(w http.ResponseWriter, r *http.Request) {
+	f, err := os.Open(principalFile)
+	if err != nil {
+		log.Fatalf("error occurs opening principal map file: %v\n", err)
+	}
+	params := r.URL.Query()
+	if params.Get("target") != "test" {
+		w.WriteHeader(http.StatusNotFound)
+	} else {
+		io.Copy(w, f)
+	}
 }
 
 func HandleNsName(w http.ResponseWriter, r *http.Request) {
@@ -208,6 +227,7 @@ func handler(w http.ResponseWriter, r *http.Request) {
 		kLinkProof:         HandleLinkProof,
 		kSelfCertify:       HandleSelfCertify,
 		kListPrincipals:    HandleListPrincipals,
+		kShowPrincipal:     HandleShowPrincipal,
 		kCreatePrincipal: checkFieldsFunc(
 			map[string]string{"principal": "target"},
 		),
@@ -350,7 +370,12 @@ func TestListPrincipals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error listing principal: %v", err)
 	}
-	assert.EqualValues(t, s, []string{"p1", "p2", "p3"}, "principal list should equal")
+	assert.Len(t, s, 5, "num principal")
+	assert.Equal(t, s["cb58363fafe02"].Links[0], "dfff984e1bb04", "link equal")
+	//fmt.Printf("alias value: %v\n", s["2b8418be2f84d"].Aliases)
+	assert.Equal(t, s["2b8418be2f84d"].Aliases.Ips[0].Ip, "10.0.0.5", "ip alias equal")
+	fmt.Printf("alias value: %v\n", s["2b8418be2f84d"])
+	assert.Equal(t, s["2b8418be2f84d"].Statements[0].Endorser, "9bb12eb8-c95a-48e5-812d-e34ad91bfdbe", "endorser equal")
 }
 
 func TestDeletePrincipal(t *testing.T) {
@@ -452,4 +477,20 @@ func TestSelfCertify(t *testing.T) {
 	if err != nil {
 		t.Fatalf("error %v", err)
 	}
+}
+
+func TestShowPrincipal(t *testing.T) {
+	s, err := api.ShowPrincipal("nonexist")
+	if err != nil {
+		t.Fatalf("error show principal: %v", err)
+	}
+	assert.Nil(t, s, "non exist principal")
+
+	s, err = api.ShowPrincipal("test")
+	if err != nil {
+		t.Fatalf("error show principal: %v", err)
+	}
+	assert.Equal(t, s.Links[0], "7968321274dc6", "link equal")
+	assert.Equal(t, s.Aliases.Ips[0].Ip, "10.0.0.5", "ip alias equal")
+	assert.Equal(t, s.Statements[0].Endorser, "9bb12eb8-c95a-48e5-812d-e34ad91bfdbe", "endorser equal")
 }

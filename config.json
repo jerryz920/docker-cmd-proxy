@@ -1,6 +1,7 @@
 {
   "daemon": {
     "timeout": 10,
+    "refresh_timeout": 60,
     "container_root": "/var/lib/docker/"
   }
 }

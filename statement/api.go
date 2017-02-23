@@ -19,7 +19,8 @@ type MetadataAPI interface {
 	MyId() (string, error)
 	MyNs() (string, error)
 	CreatePrincipal(name string) error
-	ListPrincipals() ([]string, error)
+	ListPrincipals() (map[string]Principal, error)
+	ShowPrincipal(target string) (*Principal, error)
 	DeletePrincipal(name string) error
 	CreateNs(name string) error
 	JoinNs(name string) error
@@ -59,6 +60,7 @@ const (
 	kCreatePrincipal   = "/create_principal"
 	kDeletePrincipal   = "/delete_principal"
 	kListPrincipals    = "/list_principals"
+	kShowPrincipal     = "/show_principal"
 	kCreateNs          = "/create_ns"
 	kDeleteNs          = "/delete_ns"
 	kJoinNs            = "/join_ns"
@@ -124,6 +126,27 @@ func strResp(resp *http.Response) (string, error) {
 func jsonResp(resp *http.Response) ([]string, error) {
 	decoder := json.NewDecoder(resp.Body)
 	result := make([]string, 0)
+	if err := decoder.Decode(&result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func principalResp(resp *http.Response) (*Principal, error) {
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, nil
+	}
+	decoder := json.NewDecoder(resp.Body)
+	result := Principal{}
+	if err := decoder.Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+func principalMap(resp *http.Response) (map[string]Principal, error) {
+	decoder := json.NewDecoder(resp.Body)
+	result := make(map[string]Principal)
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
 	}
@@ -341,13 +364,23 @@ func (api *Api) CreatePrincipal(name string) error {
 	return ok(resp)
 }
 
-func (api *Api) ListPrincipals() ([]string, error) {
+func (api *Api) ListPrincipals() (map[string]Principal, error) {
 	resp, err := api.DoGet(kListPrincipals, pack())
 	if err != nil {
 		fmt.Printf("error in listing principals: %v\n", err)
-		return []string{}, err
+		return nil, err
 	}
-	return jsonResp(resp)
+	return principalMap(resp)
+}
+
+func (api *Api) ShowPrincipal(target string) (*Principal, error) {
+	resp, err := api.DoGet(kShowPrincipal, pack(qTarget, target))
+	if err != nil {
+		fmt.Printf("error in listing principals: %v\n", err)
+		return nil, err
+	}
+	return principalResp(resp)
+
 }
 
 func (api *Api) DeletePrincipal(name string) error {

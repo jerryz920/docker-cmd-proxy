@@ -6,10 +6,13 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
 	docker "github.com/docker/docker/container"
+	config "github.com/jerryz920/tapcon-monitor/config"
+	metadata "github.com/jerryz920/tapcon-monitor/statement"
 )
 
 const (
@@ -18,7 +21,16 @@ const (
 	LOCALHOST_V4          = "127.0.0.1"
 	DEFAULT_NS            = "default"
 	WILDCARD_IP           = "0.0.0.0"
+
+	/// Container events
+	NEED_UPDATE    = 1
+	CONTAINER_DEAD = 2
 )
+
+type instanceIp struct {
+	ns string
+	ip string
+}
 
 type MemContainer struct {
 	Config           *docker.Container
@@ -27,20 +39,29 @@ type MemContainer struct {
 	Mutex            *sync.Mutex
 	Ips              []string /// detect the IPv4 addresses of this container
 	PrincipalCreated bool
+	FactCreated      bool
 	ImageLinked      bool
-	PortAliasCreated bool
-	CreatedIpAliases []string
+	PortAliasCreated bool // only applies to non-static ports
 	StaticPortMin    int
 	StaticPortMax    int
 	LastUpdate       time.Time
+	LastRefresh      time.Time
+	Cache            ReconcileCache
+	RefreshDuration  time.Duration
+	VmIps            []instanceIp
+	EventChan        chan int
+	listIp           func(string) []string
 }
 
 func NewMemContainer(id, root string) *MemContainer {
 	return &MemContainer{
-		Config: nil,
-		Id:     id,
-		Mutex:  &sync.Mutex{},
-		Root:   root,
+		Config:          nil,
+		Id:              id,
+		Mutex:           &sync.Mutex{},
+		Root:            root,
+		listIp:          ListNsIps,
+		EventChan:       make(chan int),
+		RefreshDuration: config.Config.Daemon.RefreshTimeout * time.Second,
 	}
 }
 
@@ -104,9 +125,16 @@ func (c *MemContainer) recordTimestamp() {
 	}
 }
 
+func (c *MemContainer) ResetState() {
+	c.PrincipalCreated = false
+	c.PortAliasCreated = false
+	c.ImageLinked = false
+	c.FactCreated = false
+}
+
 func (c *MemContainer) Load() bool {
-	c.Mutex.Lock()
-	defer c.Mutex.Unlock()
+	//c.Mutex.Lock()
+	//defer c.Mutex.Unlock()
 	if c.OutOfDate() {
 		// do load, a race condition can happen if we record timestamp later:
 		// when host config is updated we checked it should be loaded, then
@@ -122,32 +150,34 @@ func (c *MemContainer) Load() bool {
 			c.LastUpdate = oldTimestamp
 			return false
 		}
-		wasRunning := c.Running()
 		c.Config = baseContainer
 
 		if !baseContainer.Running {
 			//log.Printf("stopped container %s\n", c.Id)
-			/// for this case we want to notify the
-			if wasRunning {
-				return true
-			}
 			return false
 		}
 		osNsName := baseContainer.NetworkSettings.SandboxKey
 		if osNsName == "" {
 			/// for this case the container is still loaded, but just not running
+			c.Ips = make([]string, 0)
 			return true
 		}
-		ips := ListNsIps(osNsName)
+		ips := c.listIp(osNsName)
 		if len(ips) == 0 && !baseContainer.Config.NetworkDisabled {
 			log.Printf("There must be non-empty ip list for container")
 			/// for this case the container is still loaded, but just not running
+			c.Ips = make([]string, 0)
 			return true
 		}
 		c.Ips = ips
 		return true
 	}
 	return false
+}
+
+func (c *MemContainer) AssignStaticPorts(pmin, pmax int) {
+	c.StaticPortMin = pmin
+	c.StaticPortMax = pmax
 }
 
 func (c *MemContainer) Running() bool {
@@ -207,52 +237,114 @@ func (c *MemContainer) Dump() {
 	log.Printf("State: %v\n", c.Config.Running)
 	log.Printf("Root: %s\n", c.Root)
 	log.Printf("Ips: %v\n", c.Ips)
-	log.Printf("TapconState: %v %v %v\n", c.PrincipalCreated, c.ImageLinked, c.PortAliasCreated)
-	log.Printf("TapconIps: %v\n", c.CreatedIpAliases)
 	log.Printf("StaticPorts: %d %d\n", c.StaticPortMin, c.StaticPortMax)
 }
 
-func modifiedSinceLast(last_update time.Time, root string) (bool, error) {
-	config_file := path.Join(root, CONTAINER_CONFIG_FILE)
-	if result, err := os.Stat(config_file); err != nil {
-		return false, err
-	} else {
-		return last_update.Before(result.ModTime()), nil
+func (c *MemContainer) ContainerFacts() []metadata.Statement {
+	if c.Config == nil {
+		return []metadata.Statement{}
 	}
+	cid := tapconContainerId(c)
+	iid := tapconContainerImageId(c)
+	return []metadata.Statement{
+		metadata.Statement(fmt.Sprintf("containerFact(\"%s\", \"%s\")", cid, iid))}
 }
 
-func LoadContainer(id string, root string, last_update time.Time,
-	force bool) (*docker.Container, error) {
-	if !force {
-		if ok, err := modifiedSinceLast(last_update, root); err != nil || !ok {
-			return nil, err
+/// Ports for public network usage
+func (c *MemContainer) ContainerPorts() []PortAlias {
+	ports := make([]PortAlias, 0, len(c.Config.NetworkSettings.Ports)+1)
+	/// Fixme: here we should actually return the port binding for the host
+	for _, bindings := range c.Config.NetworkSettings.Ports {
+		for _, binding := range bindings {
+			p64, err := strconv.ParseInt(binding.HostPort, 10, 0)
+			if err != nil {
+				log.Printf("error parsing port alias %v\n", binding.HostPort)
+				continue
+			}
+			p := int(p64)
+			for _, proto := range [2]string{"tcp", "udp"} {
+				for _, vmip := range c.VmIps {
+					ports = append(ports, PortAlias{
+						min:      p,
+						max:      p,
+						ip:       vmip.ip,
+						protocol: proto,
+						nsName:   vmip.ns,
+					})
+				}
+			}
 		}
 	}
-	baseContainer := docker.NewBaseContainer(id, root)
-	if err := baseContainer.FromDisk(); err != nil {
-		log.Print("error in loading the container content: ", err)
-		return nil, err
+	if c.StaticPortMin != 0 {
+		for _, proto := range [2]string{"tcp", "udp"} {
+			for _, vmip := range c.VmIps {
+				ports = append(ports, PortAlias{
+					min:      c.StaticPortMin,
+					max:      c.StaticPortMax,
+					ip:       vmip.ip,
+					protocol: proto,
+					nsName:   vmip.ns,
+				})
+			}
+		}
 	}
-	return baseContainer, nil
-
+	return ports
 }
 
-func LoadMemContainer(id string, root string) (*MemContainer, error) {
-	baseContainer, err := LoadContainer(id, root, time.Now(), true)
-	if err != nil {
-		return nil, err
+func (c *MemContainer) Refresh() error {
+	now := time.Now()
+	if now.After(c.LastRefresh.Add(c.RefreshDuration)) {
+		if err := c.Cache.Refresh(); err != nil {
+			log.Printf("error in refreshing the cache: %v\n", err)
+			return err
+		} else {
+			c.LastRefresh = now
+		}
 	}
-	return &MemContainer{Config: baseContainer, Id: id, Root: root}, nil
+	return nil
 }
 
-func ContainerInspect(c *docker.Container) {
-	log.Printf("----------------------")
-	log.Printf("container id: %s, running: %v\n", c.ID, c.Running)
-	log.Printf("container start at: %s, finish at: %s\n", c.StartedAt, c.FinishedAt)
-	log.Printf("container ImageID: %v\n", c.ImageID)
-	log.Printf("container config Image: %s", c.Config.Image)
-}
-
+//func modifiedSinceLast(last_update time.Time, root string) (bool, error) {
+//	config_file := path.Join(root, CONTAINER_CONFIG_FILE)
+//	if result, err := os.Stat(config_file); err != nil {
+//		return false, err
+//	} else {
+//		return last_update.Before(result.ModTime()), nil
+//	}
+//}
+//
+//func LoadContainer(id string, root string, last_update time.Time,
+//	force bool) (*docker.Container, error) {
+//	if !force {
+//		if ok, err := modifiedSinceLast(last_update, root); err != nil || !ok {
+//			return nil, err
+//		}
+//	}
+//	baseContainer := docker.NewBaseContainer(id, root)
+//	if err := baseContainer.FromDisk(); err != nil {
+//		log.Print("error in loading the container content: ", err)
+//		return nil, err
+//	}
+//	return baseContainer, nil
+//
+//}
+//
+//func LoadMemContainer(id string, root string) (*MemContainer, error) {
+//	baseContainer, err := LoadContainer(id, root, time.Now(), true)
+//	if err != nil {
+//		return nil, err
+//	}
+//	return &MemContainer{Config: baseContainer, Id: id, Root: root}, nil
+//}
+//
+//func ContainerInspect(c *docker.Container) {
+//	log.Printf("----------------------")
+//	log.Printf("container id: %s, running: %v\n", c.ID, c.Running)
+//	log.Printf("container start at: %s, finish at: %s\n", c.StartedAt, c.FinishedAt)
+//	log.Printf("container ImageID: %v\n", c.ImageID)
+//	log.Printf("container config Image: %s", c.Config.Image)
+//}
+//
 func ContainerConfigPaths(root string) []string {
 	return []string{path.Join(root, CONTAINER_CONFIG_FILE),
 		path.Join(root, CONTAINER_HOST_CONFIG)}

@@ -2,6 +2,7 @@ package statement
 
 import (
 	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -75,8 +76,8 @@ var (
     }`
 )
 
-func TestLoadPrincipal(t *testing.T) {
-	var p PortAliases
+func TestLoadAlias(t *testing.T) {
+	var p PrincipalAliases
 	decoder := json.NewDecoder(strings.NewReader(example1))
 	if err := decoder.Decode(&p); err != nil {
 		t.Fatalf("error: %v\n", err)
@@ -84,17 +85,39 @@ func TestLoadPrincipal(t *testing.T) {
 	assert.Equal(t, p.Ips[0].NsName, "default", "ns_name should be equal")
 	assert.Equal(t, p.Ports[1].Ports.Tcp[0], [2]int{1, 2}, "tcp ports")
 
-	var p1 PortAliases
+	var p1 PrincipalAliases
 	decoder = json.NewDecoder(strings.NewReader(example2))
 	if err := decoder.Decode(&p1); err != nil {
 		t.Fatalf("error: %v\n", err)
 	}
 	assert.Len(t, p1.Ports, 0, "skipped ports")
 
-	var p2 PortAliases
+	var p2 PrincipalAliases
 	decoder = json.NewDecoder(strings.NewReader(example3))
 	if err := decoder.Decode(&p2); err != nil {
 		t.Fatalf("error: %v\n", err)
 	}
 	assert.Len(t, p2.Ips, 0, "skipped ips")
+}
+
+func TestLoadAliasFromFile(t *testing.T) {
+
+	f, err := os.Open("../examples/alias.json")
+	if err != nil {
+		t.Fatalf("open file: %v\n", err)
+	}
+
+	d := json.NewDecoder(f)
+	var p PrincipalAliases
+	if err := d.Decode(&p); err != nil {
+		t.Fatalf("parsing example json: %v\n", err)
+	}
+
+	assert.Len(t, p.Ips, 6, "ip alias count")
+	assert.Equal(t, p.Ips[0].Ip, "192.168.1.1", "ip alias name")
+	assert.Equal(t, p.Ips[5].NsName, "ns-1", "ip alias name")
+	assert.Len(t, p.Ports, 12, "port alias count")
+	assert.Equal(t, p.Ports[1].Ip, "10.0.1.2", "port alias ip")
+	assert.Equal(t, p.Ports[2].Ports.Tcp[0][1], 24000, "port alias port max")
+
 }

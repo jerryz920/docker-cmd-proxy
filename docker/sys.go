@@ -9,11 +9,6 @@ import (
 
 /// metadata and port management for tapcon monitor
 
-type PortRange struct {
-	min int
-	max int
-}
-
 func (m *Monitor) ProvisionContainer(id string, c *MemContainer) error {
 	if id == "" {
 		id = c.Config.ID
