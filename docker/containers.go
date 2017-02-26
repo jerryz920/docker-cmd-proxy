@@ -61,6 +61,7 @@ func NewMemContainer(id, root string) *MemContainer {
 		Root:            root,
 		listIp:          ListNsIps,
 		EventChan:       make(chan int),
+		Cache:           nil,
 		RefreshDuration: config.Config.Daemon.RefreshTimeout * time.Second,
 	}
 }

@@ -171,16 +171,16 @@ func tapconStringId(id string) string {
 }
 
 func tapconContainerId(c *MemContainer) string {
-	return c.Id[0:ID_TRUNCATE_LEN]
+	return tapconStringId(c.Id)
 }
 
 func tapconContainerImageId(c *MemContainer) string {
 	s := c.Config.ImageID.String()
 	parts := strings.Split(s, ":")
 	if len(parts) >= 2 {
-		return parts[1][0:ID_TRUNCATE_LEN]
+		return tapconStringId(parts[1])
 	}
-	return parts[0][0:ID_TRUNCATE_LEN]
+	return tapconStringId(parts[0])
 }
 
 func tapconImageId(image *MemImage) string {

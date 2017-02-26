@@ -12,6 +12,8 @@ type ReconcileCache interface {
 	Refresh() error
 	Create() error
 	Remove() error
+	State() *metadata.Principal
+	Valid() bool
 }
 
 type reconcileCache struct {
@@ -136,106 +138,58 @@ func (r *reconcileCache) ReconcileIpAlias() error {
 	return nil
 }
 
-func PortsAliasDiff(cports []PortAlias, sports []metadata.PortAlias) (
+func PortAliasIn(target []PortAlias, ns, ip, protocol string, min, max int) bool {
+	for _, p := range target {
+		if p.nsName == ns && p.ip == ip && p.protocol == protocol &&
+			p.min == min && p.max == max {
+			return true
+		}
+	}
+	return false
+}
+
+func PortsAliasDiff(cports []PortAlias, p *metadata.Principal) (
 	[]PortAlias, []PortAlias, []PortAlias) {
 
 	clientOnly := make([]PortAlias, 0, len(cports))
-	serverOnly := make([]PortAlias, 0, len(sports))
+	/// They won't differ much so just use len(cports)
+	serverOnly := make([]PortAlias, 0, len(cports))
 	mutualPorts := make([]PortAlias, 0, len(cports))
 
 	for _, cport := range cports {
-		found := false
-		if cport.protocol == "udp" {
-			for _, sport := range sports {
-				if sport.NsName == cport.nsName && sport.Ip == cport.ip {
-					for _, prange := range sport.Ports.Udp {
-						if prange[0] == cport.min && prange[1] == cport.max {
-							found = true
-							mutualPorts = append(mutualPorts, cport)
-							break
-						}
-					}
-					if found {
-						break
-					}
-				}
-			}
+		_, j := p.FindPortAlias(cport.nsName, cport.ip, cport.protocol,
+			cport.min, cport.max)
+		if j != -1 {
+			mutualPorts = append(mutualPorts, cport)
 		} else {
-			for _, sport := range sports {
-				if sport.NsName == cport.nsName && sport.Ip == cport.ip {
-					for _, prange := range sport.Ports.Tcp {
-						if prange[0] == cport.min && prange[1] == cport.max {
-							found = true
-							mutualPorts = append(mutualPorts, cport)
-							break
-						}
-					}
-					if found {
-						break
-					}
-				}
-			}
-		}
-		if !found {
 			clientOnly = append(clientOnly, cport)
 		}
 	}
 
-	for _, sports := range sports {
-		found := false
-		pmin := -1
-		pmax := -1
+	for _, sports := range p.Aliases.Ports {
 		for _, tcpPort := range sports.Ports.Tcp {
-			for _, cport := range cports {
-				if tcpPort[0] == cport.min && tcpPort[1] == cport.max &&
-					cport.protocol == "tcp" && cport.nsName == sports.NsName &&
-					cport.ip == sports.Ip {
-					found = true
-					pmin = tcpPort[0]
-					pmax = tcpPort[1]
-					break
-				}
-			}
-			if found {
-				break
+			if !PortAliasIn(cports, sports.NsName, sports.Ip, "tcp", tcpPort[0],
+				tcpPort[1]) {
+				serverOnly = append(serverOnly, PortAlias{
+					min:      tcpPort[0],
+					max:      tcpPort[1],
+					protocol: "tcp",
+					nsName:   sports.NsName,
+					ip:       sports.Ip,
+				})
 			}
 		}
-		if !found {
-			serverOnly = append(serverOnly, PortAlias{
-				min:      pmin,
-				max:      pmax,
-				protocol: "tcp",
-				nsName:   sports.NsName,
-				ip:       sports.Ip,
-			})
-		}
-
-		found = false
-		pmin = -1
-		pmax = -1
 		for _, udpPort := range sports.Ports.Udp {
-			for _, cport := range cports {
-				if udpPort[0] == cport.min && udpPort[1] == cport.max &&
-					cport.protocol == "tcp" && cport.nsName == sports.NsName &&
-					cport.ip == sports.Ip {
-					found = true
-					pmin = udpPort[0]
-					pmax = udpPort[1]
-					break
-				}
+			if !PortAliasIn(cports, sports.NsName, sports.Ip, "udp", udpPort[0],
+				udpPort[1]) {
+				serverOnly = append(serverOnly, PortAlias{
+					min:      udpPort[0],
+					max:      udpPort[1],
+					protocol: "udp",
+					nsName:   sports.NsName,
+					ip:       sports.Ip,
+				})
 			}
-			if found {
-				break
-			}
-		}
-		if !found {
-			serverOnly = append(serverOnly, PortAlias{
-				min:      pmin,
-				max:      pmax,
-				protocol: "tcp",
-				nsName:   sports.NsName,
-				ip:       sports.Ip,
-			})
 		}
 	}
 	return clientOnly, serverOnly, mutualPorts
@@ -252,7 +206,7 @@ func (r *reconcileCache) ReconcilePortAlias() error {
 	// server
 	ports := r.c.ContainerPorts()
 	clientOnlyPorts, serverOnlyPorts, mutualPorts := PortsAliasDiff(
-		ports, r.serverState.Aliases.Ports)
+		ports, r.serverState)
 
 	for _, port := range clientOnlyPorts {
 		ip := net.ParseIP(port.ip)
@@ -283,42 +237,8 @@ func (r *reconcileCache) ReconcilePortAlias() error {
 	r.serverState.Aliases.Ports = make([]metadata.PortAlias, 0, len(mutualPorts))
 
 	for _, port := range mutualPorts {
-		pair := [2]int{port.min, port.max}
-		found := false
-		for _, existed := range r.serverState.Aliases.Ports {
-			if existed.NsName == port.nsName && existed.Ip == port.ip {
-				if port.protocol == "tcp" {
-					existed.Ports.Tcp = append(existed.Ports.Tcp, pair)
-				} else {
-					existed.Ports.Udp = append(existed.Ports.Tcp, pair)
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			if port.protocol == "tcp" {
-				r.serverState.Aliases.Ports = append(r.serverState.Aliases.Ports,
-					metadata.PortAlias{
-						NsName: port.nsName,
-						Ip:     port.ip,
-						Ports: metadata.ProtocolPorts{
-							Tcp: [][2]int{pair},
-							Udp: [][2]int{},
-						},
-					})
-			} else {
-				r.serverState.Aliases.Ports = append(r.serverState.Aliases.Ports,
-					metadata.PortAlias{
-						NsName: port.nsName,
-						Ip:     port.ip,
-						Ports: metadata.ProtocolPorts{
-							Udp: [][2]int{pair},
-							Tcp: [][2]int{},
-						},
-					})
-			}
-		}
+		r.serverState.AddPortAlias(port.nsName, port.ip, port.protocol,
+			port.min, port.max)
 	}
 
 	return nil
@@ -365,7 +285,26 @@ func (r *reconcileCache) Remove() error {
 	return nil
 }
 
+func (r *reconcileCache) State() *metadata.Principal {
+	return r.serverState
+}
+
+func (r *reconcileCache) Valid() bool {
+	/// internally we reuse the server state for valid indicator. But in fact
+	// we should have different way to mark so
+	return r.serverState != nil
+}
+
 func NewReconcileCache(api metadata.MetadataAPI, c *MemContainer) ReconcileCache {
+	return &reconcileCache{
+		api:         api,
+		c:           c,
+		serverState: nil,
+	}
+}
+
+// just for test
+func newReconcileCache(api metadata.MetadataAPI, c *MemContainer) *reconcileCache {
 	return &reconcileCache{
 		api:         api,
 		c:           c,

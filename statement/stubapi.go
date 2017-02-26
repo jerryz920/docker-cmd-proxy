@@ -166,7 +166,7 @@ func emptyPrincipal() Principal {
 	return loadPrincipal(`{
         "alias": {
             "ips": [],
-            "ports": [],
+            "ports": []
         },
         "links": [],
         "statements": []
@@ -178,15 +178,11 @@ func ipOnlyPrincipal() Principal {
         "alias": {
             "ips": [
                 {
-                    "ns_name": "default",
-                    "ip": "192.168.0.1"
-                },
-                {
-                    "ns_name": "ns-1",
-                    "ip": "172.16.1.1"
+                    "ns_name": "overlay",
+                    "ip": "10.0.0.1"
                 }
             ],
-            "ports": []
+            "ports": [ ]
         },
         "links": [],
         "statements": []
@@ -196,48 +192,39 @@ func ipOnlyPrincipal() Principal {
 func portOnlyPrincipal() Principal {
 	return loadPrincipal(`{
         "alias": {
-            "ips": [],
+            "ips": [ ],
             "ports": [
                 {
                     "ns_name": "default",
                     "ip": "192.168.0.1",
                     "ports": {
                         "tcp": [
-                        [1000,1200],
-                        [1300,1400]
+                        [1000,2000],
+			[7077,7077],
+			[8088,8088]
                         ],
-                        "udp": []
-                    },
-                },
-                {
-                    "ns_name": "ns-1",
-                    "ip": "172.16.1.1"
-                    "ports": {
-                        "tcp": [],
-                        "udp": []
-                    },
-                },
-                {
-                    "ns_name": "ns-2",
-                    "ip": "172.16.1.2"
-                    "ports": {
-                        "tcp": [],
                         "udp": [
-                        [100,200]
-                        ]
-                    },
+			[1000,2000],
+			[7077,7077],
+			[8088,8088]
+			]
+                    }
                 },
                 {
-                    "ns_name": "ns-3",
-                    "ip": "172.16.1.3"
+                    "ns_name": "localns",
+                    "ip": "172.16.0.1",
                     "ports": {
                         "tcp": [
-                        [100,200]
+                        [1000,2000],
+			[7077,7077],
+			[8088,8088]
                         ],
                         "udp": [
-                        [100,200]
-                        ]
-                    },
+			[1000,2000],
+			[7077,7077],
+			[8088,8088]
+			]
+                    }
                 }
             ]
         },
@@ -251,12 +238,8 @@ func regularPrincipal() Principal {
         "alias": {
             "ips": [
                 {
-                    "ns_name": "default",
-                    "ip": "192.168.0.1"
-                },
-                {
-                    "ns_name": "ns-1",
-                    "ip": "172.16.1.1"
+                    "ns_name": "overlay",
+                    "ip": "10.0.0.1"
                 }
             ],
             "ports": [
@@ -265,48 +248,41 @@ func regularPrincipal() Principal {
                     "ip": "192.168.0.1",
                     "ports": {
                         "tcp": [
-                        [1000,1200],
-                        [1300,1400]
+                        [1000,2000],
+			[7077,7077],
+			[8088,8088]
                         ],
-                        "udp": []
-                    },
-                },
-                {
-                    "ns_name": "ns-1",
-                    "ip": "172.16.1.1"
-                    "ports": {
-                        "tcp": [],
-                        "udp": []
-                    },
-                },
-                {
-                    "ns_name": "ns-2",
-                    "ip": "172.16.1.2"
-                    "ports": {
-                        "tcp": [],
                         "udp": [
-                        [100,200]
-                        ]
-                    },
+			[1000,2000],
+			[7077,7077],
+			[8088,8088]
+			]
+                    }
                 },
                 {
-                    "ns_name": "ns-3",
-                    "ip": "172.16.1.3"
+                    "ns_name": "localns",
+                    "ip": "172.16.0.1",
                     "ports": {
                         "tcp": [
-                        [100,200]
+                        [1000,2000],
+			[7077,7077],
+			[8088,8088]
                         ],
                         "udp": [
-                        [100,200]
-                        ]
-                    },
+			[1000,2000],
+			[7077,7077],
+			[8088,8088]
+			]
+                    }
                 }
             ]
         },
-        "links": ["image-1", "image-2"],
+        "links": ["image-1"],
         "statements": [
-        "containerFact1(\"ID1\", \"ID2\")",
-        "containerFact2(\"ID3\", \"ID4\")",
+	{
+	  "endorser": "self",
+	  "fact": "containerFact(\"regular\", \"image-1\")"
+      }
         ]
     }`)
 }
@@ -316,8 +292,10 @@ func statementOnlyPrincipal() Principal {
         "alias": {},
         "links": [],
         "statements": [
-            "containerFact1(\"ID1\", \"ID2\")",
-            "containerFact2(\"ID3\", \"ID4\")"
+	{
+	  "endorser": "self",
+	  "fact": "containerFact(\"regular\", \"image-1\")"
+      }
         ]
     }`)
 }
@@ -325,7 +303,7 @@ func statementOnlyPrincipal() Principal {
 func linkOnlyPrincipal() Principal {
 	return loadPrincipal(`{
         "alias": {},
-        "links": ["image-1", "image-2"],
+        "links": ["image-1"],
         "statements": []
     }`)
 }
@@ -380,8 +358,25 @@ func (api *StubApi) ShowPrincipal(id string) (*Principal, error) {
 	}
 	api.principals[id] = &p
 	copy := p
-	assert.NotEqual(api.t, &copy, &p, "load principal address")
+	assert.False(api.t, &copy == &p, "principal address\n\n")
 	return &copy, nil
+}
+func (api *StubApi) DeletePrincipal(id string) error {
+	if id == "empty" ||
+		id == "iponly" ||
+		id == "portonly" ||
+		id == "stmtonly" ||
+		id == "linkonly" ||
+		id == "regular" {
+		api.t.Errorf("should not create pre-defined test principal")
+	}
+	if _, ok := api.principals[id]; ok {
+		delete(api.principals, id)
+		return nil
+	} else {
+		return fmt.Errorf("can not delete: principal not found")
+	}
+
 }
 
 func (api *StubApi) CopySlice(src interface{}) interface{} {
@@ -428,7 +423,7 @@ func (api *StubApi) LinkProofForChild(id string, links []string) error {
 	return nil
 }
 
-func (api *StubApi) CreateIpAlias(id string, ns string, ip net.IP) error {
+func (api *StubApi) CreateIPAlias(id string, ns string, ip net.IP) error {
 
 	api.called("CreateIpAlias", id, ns, ip.String())
 	ptr, ok := api.principals[id]
@@ -445,7 +440,7 @@ func (api *StubApi) CreateIpAlias(id string, ns string, ip net.IP) error {
 	return nil
 }
 
-func (api *StubApi) DeleteIpAlias(id string, ns string, ip net.IP) error {
+func (api *StubApi) DeleteIPAlias(id string, ns string, ip net.IP) error {
 	api.called("DeleteIpAlias", id, ns, ip.String())
 	ptr, ok := api.principals[id]
 
@@ -490,7 +485,7 @@ func (api *StubApi) DeletePortAlias(id, ns string, ip net.IP, protocol string,
 }
 
 /// not a test case
-func newStubApi(t *testing.T) MetadataAPI {
+func NewStubApi(t *testing.T) MetadataAPI {
 	return &StubApi{
 		EmptyStubApi: &EmptyStubApi{},
 		principals:   make(map[string]*Principal),
