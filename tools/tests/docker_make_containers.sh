@@ -7,7 +7,7 @@ tooldir=`dirname $toolexec`
 srcdir=$tooldir/../../tests/$target
 containerdir=$tooldir/../../tests/containers/$id
 
-mkdir $containerdir
+mkdir -p $containerdir
 for f in `ls $srcdir`; do
   cp $srcdir/$f $containerdir/tmpfile
   pushd .
