@@ -1,12 +1,24 @@
 package docker
 
 const (
-	TestDir = "../tmp/"
+	TestDir = "../tmp/containers"
 )
 
-func PrepareDeadContainers(id string) {
+func CopyContainerDir(src, dst string) {
+
+}
+
+func AddContainer(id string, dead, copy bool) {
+	var targetName string
+
+	if dead {
+		targetName = "dead"
+	} else {
+		targetName = "alive"
+	}
 
 }
 
 func TestContainerEntriesUpdate() {
+
 }
