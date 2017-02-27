@@ -65,12 +65,6 @@ func (m *Monitor) NetworkChanges() ([]string, []string) {
 	return toAdd, toDelete
 }
 
-func (m *Monitor) DelayNetworkAliasCreation(f NetworkDelayFunc) {
-	m.NetworkWorkerLock.Lock()
-	m.NetworkWorkerQueue = append(m.NetworkWorkerQueue, f)
-	m.NetworkWorkerLock.Unlock()
-}
-
 func (m *Monitor) setupInstanceIpInfo() {
 	pubIp, err := m.MetadataApi.MyPublicIp()
 	if err != nil {

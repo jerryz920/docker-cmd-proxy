@@ -7,9 +7,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -137,93 +135,6 @@ func NewMonitor(containerRoot string) (*Monitor, error) {
 	return m, nil
 }
 
-func (m *Monitor) staticPortSlotAllocated(i int) bool {
-	return atomic.LoadInt32(&m.availableStaticPorts[i]) == 0
-}
-
-func (m *Monitor) deallocateStaticPort(i int) {
-	atomic.StoreInt32(&m.availableStaticPorts[i], 0)
-}
-
-func (m *Monitor) deallocateStaticPortByContainer(c *MemContainer) {
-	index := c.StaticPortMin / m.staticPortPerContainer
-	m.deallocateStaticPort(index)
-	c.StaticPortMin = 0
-	c.StaticPortMax = 0
-}
-
-func (m *Monitor) nStaticPortSlot() int {
-	return (m.staticPortMax - m.staticPortMin) / m.staticPortPerContainer
-}
-
-func (m *Monitor) resetAllStaticPortSlot() {
-	maxSlot := m.nStaticPortSlot()
-	for i := 0; i < maxSlot; i++ {
-		atomic.StoreInt32(&m.availableStaticPorts[i], 0)
-	}
-}
-
-func tapconStringId(id string) string {
-	if len(id) < ID_TRUNCATE_LEN {
-		return id
-	}
-	return id[0:ID_TRUNCATE_LEN]
-}
-
-func tapconContainerId(c *MemContainer) string {
-	return tapconStringId(c.Id)
-}
-
-func tapconContainerImageId(c *MemContainer) string {
-	s := c.Config.ImageID.String()
-	parts := strings.Split(s, ":")
-	if len(parts) >= 2 {
-		return tapconStringId(parts[1])
-	}
-	return tapconStringId(parts[0])
-}
-
-func tapconImageId(image *MemImage) string {
-	return image.Id[0:ID_TRUNCATE_LEN]
-}
-
-func (m *Monitor) PostImageProof(image *MemImage) error {
-	id := tapconImageId(image)
-	imageFact := metadata_api.Statement(
-		fmt.Sprintf("imageFact(\"%s\", \"%s\", \"%s\", \"\", \"\")",
-			id, image.Config.Source.Repo,
-			image.Config.Source.Revision))
-	return m.MetadataApi.PostProof(id, []metadata_api.Statement{imageFact})
-}
-
-func (m *Monitor) PostContainerFact(c *MemContainer) error {
-	facts := c.ContainerFacts()
-	cid := tapconContainerId(c)
-	if len(facts) > 0 {
-		return m.MetadataApi.PostProofForChild(cid, c.ContainerFacts())
-	}
-	log.Printf("no fact to post for container")
-	return nil
-}
-
-func (m *Monitor) LinkContainerImage(c *MemContainer) error {
-	cid := tapconContainerId(c)
-	iid := tapconContainerImageId(c)
-	return m.MetadataApi.LinkProofForChild(cid, []string{iid})
-}
-
-func (m *Monitor) allocateStaticPortSlot() (PortRange, error) {
-	maxSlot := m.nStaticPortSlot()
-	for i := 0; i < maxSlot; i++ {
-		if atomic.CompareAndSwapInt32(&m.availableStaticPorts[i], 0, 1) {
-			min := m.staticPortMin + i*m.staticPortPerContainer
-			max := m.staticPortMin + (i+1)*m.staticPortPerContainer - 1
-			return PortRange{min: min, max: max}, nil
-		}
-	}
-	return PortRange{0, 0}, fmt.Errorf("can not find available slot")
-}
-
 func (m *Monitor) scanImageUpdate() error {
 
 	r, err := LoadImageRepos(m.ImageMetadataPath)
@@ -292,29 +203,33 @@ func (m *Monitor) Keeper(c *MemContainer) {
 			if e == CONTAINER_DEAD {
 				break
 			}
-			if c.Refresh() != nil {
-				if c.Load() {
-					if c.StaticPortMin == 0 {
-						prange, err := m.allocateStaticPortSlot()
-						m.SandboxBuilder.ClearStaticPortMapping(cid)
-						if err != nil {
-							log.Printf("unable to allocate static ports, retry later\n")
-						}
-						c.StaticPortMin = prange.min
-						c.StaticPortMax = prange.max
-						for _, ip := range c.Ips {
-							if c.IsContainerIp(ip) {
-								m.SandboxBuilder.SetupStaticPortMapping(cid, ip,
-									prange.min, prange.max)
-							}
+			if err := c.Refresh(); err != nil {
+				// this may happen that a container has been deleted
+				log.Error("refresh error: %v", err)
+			}
+			if c.Load() {
+				if c.StaticPortMin == 0 {
+					prange, err := m.allocateStaticPortSlot()
+					m.SandboxBuilder.ClearStaticPortMapping(cid)
+					if err != nil {
+						log.Printf("unable to allocate static ports, retry later\n")
+					}
+					c.StaticPortMin = prange.min
+					c.StaticPortMax = prange.max
+					for _, ip := range c.Ips {
+						if c.IsContainerIp(ip) {
+							m.SandboxBuilder.SetupStaticPortMapping(cid, ip,
+								prange.min, prange.max)
 						}
 					}
-					c.Cache.Create()
-				} else {
-					c.Cache.Remove()
-					m.SandboxBuilder.ClearStaticPortMapping(cid)
-					m.deallocateStaticPortByContainer(c)
 				}
+				/// no matter refresh success or fail, we will resync the
+				// server cache (maybe empty) and client side status
+				c.Cache.Create()
+			} else {
+				c.Cache.Remove()
+				m.SandboxBuilder.ClearStaticPortMapping(cid)
+				m.deallocateStaticPortByContainer(c)
 			}
 		}
 	}
