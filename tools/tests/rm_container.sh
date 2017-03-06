@@ -6,7 +6,7 @@ fi
 
 toolexec=`readlink -f $0`
 tooldir=`dirname $toolexec`
-for id in $#; do
+for id in $@; do
   if [[ x"$id" == x ]]; then
     continue
   fi 

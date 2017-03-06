@@ -17,7 +17,7 @@ func init() {
 
 func TestMemContainerOutofDate(t *testing.T) {
 	id := "b3f37be527fa2e44d4916497d22ed635d21e10d0b991682939365c0e6b1f5101"
-	path, err := filepath.Abs("../tests/containers/")
+	path, err := filepath.Abs("../tests/backups/")
 	if err != nil {
 		t.Fatalf("error in container root conversion: %v\n", err)
 	}
@@ -58,7 +58,7 @@ func StubListIP(ns string) []string {
 
 func TestMemContainerLoad(t *testing.T) {
 	id := "b3f37be527fa2e44d4916497d22ed635d21e10d0b991682939365c0e6b1f5101"
-	path, err := filepath.Abs("../tests/containers/")
+	path, err := filepath.Abs("../tests/backups/")
 	if err != nil {
 		t.Fatalf("error in container root conversion: %v\n", err)
 	}
@@ -66,9 +66,9 @@ func TestMemContainerLoad(t *testing.T) {
 	c := NewMemContainer(tapconStringId(id), root)
 	c.listIp = StubListIP
 
-	assert.True(t, c.Load(), "first time should load")
+	assert.True(t, c.Load(), "c contains valid state")
 	assert.Equal(t, c.Ips, []string{"192.168.1.1"})
-	assert.False(t, c.Load(), "dont need to load update-to-date container")
+	assert.True(t, c.Load(), "c contains valid state even if load again where outofdate works")
 
 	config := filepath.Join(root, "config.v2.json")
 	now := time.Now()

@@ -133,6 +133,7 @@ func (c *MemContainer) ResetState() {
 	c.FactCreated = false
 }
 
+// Load indicates whether the container contains a valid running config file
 func (c *MemContainer) Load() bool {
 	//c.Mutex.Lock()
 	//defer c.Mutex.Unlock()
@@ -173,7 +174,10 @@ func (c *MemContainer) Load() bool {
 		c.Ips = ips
 		return true
 	}
-	return false
+	if c.Config == nil {
+		return false
+	}
+	return true
 }
 
 func (c *MemContainer) AssignStaticPorts(pmin, pmax int) {

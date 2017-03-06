@@ -9,6 +9,9 @@ import (
 type fakeSandbox struct{}
 
 func (s *fakeSandbox) ContainerChainName(id string) string {
+	if len(id) <= 10 {
+		return fmt.Sprintf("ctn-%s", id)
+	}
 	return fmt.Sprintf("ctn-%s", id[0:10])
 }
 

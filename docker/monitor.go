@@ -82,7 +82,8 @@ type Monitor struct {
 	udpPorts map[string][]PortRange
 }
 
-func NewMonitor(containerRoot string) (*Monitor, error) {
+func NewMonitor(containerRoot string, api metadata_api.MetadataAPI,
+	sbox Sandbox) (*Monitor, error) {
 
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
@@ -98,13 +99,11 @@ func NewMonitor(containerRoot string) (*Monitor, error) {
 	watcher.Add(containerPath)
 
 	m := &Monitor{
-		Watcher:     watcher,
-		MetadataApi: metadata_api.NewOpenstackMetadataAPI(""),
-		//MetadataApi:         &metadata_api.StubApi{},
-		CommandChan:         make(chan int),
-		ContainerUpdateChan: make(chan *MemContainer, 10),
-		SandboxBuilder:      &sandbox{},
-		//SandboxBuilder:         &fakeSandbox{},
+		Watcher:                watcher,
+		MetadataApi:            api,
+		CommandChan:            make(chan int),
+		ContainerUpdateChan:    make(chan *MemContainer, 10),
+		SandboxBuilder:         sbox,
 		ContainerMetadataPath:  containerPath,
 		ContainerLock:          &sync.Mutex{},
 		ImageMetadataPath:      imagePath,
@@ -115,7 +114,7 @@ func NewMonitor(containerRoot string) (*Monitor, error) {
 		NetworkWorkerQueue:     make([]NetworkDelayFunc, 0),
 		NetworkWorkerLock:      &sync.Mutex{},
 		LastUpdate:             time.Now(),
-		timeout:                tapcon_config.Config.Daemon.Timeout,
+		timeout:                tapcon_config.Config.Daemon.Timeout * time.Second,
 		staticPortMin:          tapcon_config.Config.StaticPortBase,
 		staticPortMax:          tapcon_config.Config.StaticPortMax,
 		staticPortPerContainer: tapcon_config.Config.PortPerContainer,
@@ -125,6 +124,12 @@ func NewMonitor(containerRoot string) (*Monitor, error) {
 		m.staticPortPerContainer)
 	m.resetAllStaticPortSlot()
 	m.setupInstanceIpInfo()
+	if api == nil {
+		m.MetadataApi = metadata_api.NewOpenstackMetadataAPI("")
+	}
+	if sbox == nil {
+		m.SandboxBuilder = &sandbox{}
+	}
 	// Force a scan to avoid missing events
 	m.Scan()
 
@@ -187,8 +192,8 @@ func (m *Monitor) containerEntryUpdate(id string, create bool) {
 		defer m.ContainerLock.Unlock()
 		if c, ok := m.Containers[cid]; ok {
 			c.EventChan <- CONTAINER_DEAD
+			delete(m.Containers, cid)
 		}
-		delete(m.Containers, cid)
 	}
 }
 
@@ -203,16 +208,18 @@ func (m *Monitor) Keeper(c *MemContainer) {
 			if e == CONTAINER_DEAD {
 				break
 			}
-			if err := c.Refresh(); err != nil {
-				// this may happen that a container has been deleted
-				log.Printf("refresh error: %v", err)
-			}
+			c.Refresh()
+			//if err := c.Refresh(); err != nil {
+			//	// this may happen that a container has been deleted
+			//	log.Printf("refresh error: %v", err)
+			//}
 			if c.Load() {
 				if c.StaticPortMin == 0 {
 					prange, err := m.allocateStaticPortSlot()
 					m.SandboxBuilder.ClearStaticPortMapping(cid)
 					if err != nil {
 						log.Printf("unable to allocate static ports, retry later\n")
+						continue
 					}
 					c.StaticPortMin = prange.min
 					c.StaticPortMax = prange.max

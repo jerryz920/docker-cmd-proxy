@@ -3,15 +3,17 @@ package docker
 import (
 	"fmt"
 	"log"
+
+	metadata "github.com/jerryz920/tapcon-monitor/statement"
 )
 
 func (m *Monitor) PostImageProof(image *MemImage) error {
 	id := tapconImageId(image)
-	imageFact := metadata_api.Statement(
+	imageFact := metadata.Statement(
 		fmt.Sprintf("imageFact(\"%s\", \"%s\", \"%s\", \"\", \"\")",
 			id, image.Config.Source.Repo,
 			image.Config.Source.Revision))
-	return m.MetadataApi.PostProof(id, []metadata_api.Statement{imageFact})
+	return m.MetadataApi.PostProof(id, []metadata.Statement{imageFact})
 }
 
 func (m *Monitor) PostContainerFact(c *MemContainer) error {
