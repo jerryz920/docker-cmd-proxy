@@ -205,7 +205,7 @@ func (m *Monitor) Keeper(c *MemContainer) {
 			}
 			if err := c.Refresh(); err != nil {
 				// this may happen that a container has been deleted
-				log.Error("refresh error: %v", err)
+				log.Printf("refresh error: %v", err)
 			}
 			if c.Load() {
 				if c.StaticPortMin == 0 {
