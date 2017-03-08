@@ -55,7 +55,7 @@ func TestContainerEntriesUpdate(t *testing.T) {
 	m.ContainerLock.Lock()
 	assert.Len(t, m.Containers, 7, "dyn adding containers")
 	for _, c := range m.Containers {
-		assert.False(t, c.Config.Running, "dead containers")
+		assert.False(t, c.Running(), "dead containers")
 	}
 	m.ContainerLock.Unlock()
 
@@ -67,4 +67,27 @@ func TestContainerEntriesUpdate(t *testing.T) {
 	m.ContainerLock.Lock()
 	assert.Len(t, m.Containers, 4, "dyn removing containers")
 	m.ContainerLock.Unlock()
+
+	AddContainer("t1", false, false)
+	AddContainer("t2", false, true)
+	AddContainer("t3", false, false)
+	AddContainer("t4", false, true)
+
+	time.Sleep(2 * time.Second)
+	m.ContainerLock.Lock()
+	assert.Len(t, m.Containers, 8, "dyn adding alive containers")
+	for id, c := range m.Containers {
+		if id == "t1" {
+			assert.True(t, c.Running(), "t1 is running")
+		}
+	}
+	m.ContainerLock.Unlock()
+	DelContainer("t1")
+	DelContainer("t2")
+
+	time.Sleep(2 * time.Second)
+	m.ContainerLock.Lock()
+	assert.Len(t, m.Containers, 6, "dyn adding alive containers")
+	m.ContainerLock.Unlock()
+
 }

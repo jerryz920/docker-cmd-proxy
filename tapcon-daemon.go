@@ -31,7 +31,7 @@ func main() {
 	}
 	log.Printf("container root: %s\n", containerRoot)
 
-	monitor, err := daemon.NewMonitor(containerRoot)
+	monitor, err := daemon.NewMonitor(containerRoot, nil, nil)
 	if err != nil {
 		log.Fatalf("error allocating new monitor:%s\n", err)
 	}
