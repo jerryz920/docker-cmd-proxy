@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
 	docker_image "github.com/docker/docker/image"
 )
 
@@ -48,7 +48,7 @@ func (e *ParseError) Error() string {
 
 func (i *Image) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &i.Versions); err != nil {
-		fmt.Printf("error in parsing ImageVersions, %v\n", err)
+		log.Errorf("parsing ImageVersions, %v", err)
 		return err
 	}
 	return nil
@@ -56,7 +56,7 @@ func (i *Image) UnmarshalJSON(data []byte) error {
 
 func (r *Repo) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &r.Images); err != nil {
-		fmt.Printf("error in parsing ImageRepo, %v\n", err)
+		log.Errorf("parsing ImageRepo, %v", err)
 		return err
 	}
 	return nil
@@ -92,9 +92,9 @@ func (i *MemImage) Load() error {
 }
 
 func (i *MemImage) Dump() {
-	log.Printf("-----ImageId: %s\n", i.Id)
-	log.Printf("root: %s\n", i.Root)
-	log.Printf("Source: %v\n", i.Config.Source)
+	log.Infof("-----ImageId: %s", i.Id)
+	log.Infof("root: %s", i.Root)
+	log.Infof("Source: %v", i.Config.Source)
 }
 
 func parseVersion(version string) (string, error) {
@@ -118,7 +118,7 @@ func GetAllImageIds(r *Repo) []string {
 		for _, version := range images.Versions {
 			id, err := parseVersion(version)
 			if err != nil {
-				fmt.Printf("parsing: %v\n", err)
+				fmt.Errorf("parsing: %v\n", err)
 				continue
 			}
 			result = append(result, id)
@@ -135,12 +135,12 @@ func NeedReload(r *Repo, imageRoot string) bool {
 	repoFile, err := os.Open(imageRepoFile(imageRoot))
 	defer repoFile.Close()
 	if err != nil {
-		log.Printf("can not open image repositories: %v\n", err.Error())
+		log.Errorf("can not open image repositories: %v", err.Error())
 		return false
 	}
 	stat, err := repoFile.Stat()
 	if err != nil {
-		log.Printf("can not stat image repositories: %v\n", err.Error())
+		log.Errorf("can not stat image repositories: %v", err.Error())
 		return false
 	}
 	if r.lastUpdate.Before(stat.ModTime()) {
@@ -153,14 +153,14 @@ func LoadImageRepos(imageRoot string) (*Repo, error) {
 	repoFile, err := os.Open(imageRepoFile(imageRoot))
 	defer repoFile.Close()
 	if err != nil {
-		log.Printf("can not open image repositories: %v\n", err.Error())
+		log.Errorf("can not open image repositories: %v", err.Error())
 		return nil, err
 	}
 
 	d := json.NewDecoder(repoFile)
 	repos := make(map[string]*Repo)
 	if err := d.Decode(&repos); err != nil {
-		log.Printf("can not decode image repo config: %v\n", err.Error())
+		log.Errorf("can not decode image repo config: %v", err.Error())
 		return nil, err
 	}
 	repo := repos[REPO_NAME]

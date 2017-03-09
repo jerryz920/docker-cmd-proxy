@@ -2,9 +2,10 @@ package docker
 
 import (
 	"fmt"
-	"log"
 	"os/exec"
 	"strings"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 /// metadata and port management for tapcon monitor
@@ -58,7 +59,7 @@ func parseIps(data string) []string {
 	for i, ipline := range splitted {
 		info := strings.Split(ipline, " ")
 		if len(info) < 2 {
-			log.Printf("error reading in IPs: %s [%s]\n", splitted[i], ipline)
+			log.Errorf("error reading in IPs: %s [%s]", splitted[i], ipline)
 			return []string{}
 		}
 		result = append(result, info[1])
@@ -71,7 +72,7 @@ func ListNsIps(ns string) []string {
 	cmd := exec.Command("ipshow", ns)
 	data, err := cmd.Output()
 	if err != nil {
-		log.Printf("error in listing Ns %s Ips: %s\n", ns, err.Error())
+		log.Errorf("error in listing Ns %s Ips: %s", ns, err.Error())
 		return []string{}
 	}
 	return parseIps(string(data))
@@ -96,61 +97,61 @@ func (s *sandbox) ContainerChainName(id string) string {
 
 func (s *sandbox) SetupContainerChain(id string) error {
 
-	chainName := s.ContainerChainName(id)
-	cmd := exec.Command("iptables", "-t", "nat", "-N", chainName)
-
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error creating chain: %s", string(out))
-		return err
-	}
-
-	cmd = exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "-j", chainName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error inserting chain: %s", string(out))
-		// we ignore the error here...
-		exec.Command("iptables", "-t", "nat", "-X", chainName).Run()
-		return err
-	}
+	//	chainName := s.ContainerChainName(id)
+	//	cmd := exec.Command("iptables", "-t", "nat", "-N", chainName)
+	//
+	//	if out, err := cmd.CombinedOutput(); err != nil {
+	//		log.Errorf("error creating chain: %s", string(out))
+	//		return err
+	//	}
+	//
+	//	cmd = exec.Command("iptables", "-t", "nat", "-I", "POSTROUTING", "-j", chainName)
+	//	if out, err := cmd.CombinedOutput(); err != nil {
+	//		log.Errorf("error inserting chain: %s", string(out))
+	//		// we ignore the error here...
+	//		exec.Command("iptables", "-t", "nat", "-X", chainName).Run()
+	//		return err
+	//	}
 	return nil
 }
 
 func (s *sandbox) RemoveContainerChain(id string) error {
-	chainName := s.ContainerChainName(id)
-	cmd := exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-j", chainName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error clearing jumping to static mapping chain: %s", string(out))
-		return err
-	}
-
-	cmd = exec.Command("iptables", "-t", "nat", "-F", chainName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error clearing static mapping chain: %s", string(out))
-		return err
-	}
-
-	cmd = exec.Command("iptables", "-t", "nat", "-X", chainName)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error deleting static mapping chain: %s", string(out))
-		return err
-	}
+	//	chainName := s.ContainerChainName(id)
+	//	cmd := exec.Command("iptables", "-t", "nat", "-D", "POSTROUTING", "-j", chainName)
+	//	if out, err := cmd.CombinedOutput(); err != nil {
+	//		log.Errorf("error clearing jumping to static mapping chain: %s", string(out))
+	//		return err
+	//	}
+	//
+	//	cmd = exec.Command("iptables", "-t", "nat", "-F", chainName)
+	//	if out, err := cmd.CombinedOutput(); err != nil {
+	//		log.Errorf("error clearing static mapping chain: %s", string(out))
+	//		return err
+	//	}
+	//
+	//	cmd = exec.Command("iptables", "-t", "nat", "-X", chainName)
+	//	if out, err := cmd.CombinedOutput(); err != nil {
+	//		log.Errorf("error deleting static mapping chain: %s", string(out))
+	//		return err
+	//	}
 	return nil
 }
 
 func (s *sandbox) SetupStaticPortMapping(id string, containerIp string,
 	portMin int, portMax int) error {
 
-	chainName := s.ContainerChainName(id)
-	for _, proto := range [2]string{"tcp", "udp"} {
-		cmd := exec.Command("iptables", "-t", "nat", "-A", chainName,
-			"-p", proto, "-d", containerIp,
-			"-j", "MASQUERADE", "--to-ports", fmt.Sprintf("%d-%d", portMin, portMax))
-		if out, err := cmd.CombinedOutput(); err != nil {
-			log.Printf("error inserting static mapping rule: %s", string(out))
-			// clear the chain
-			exec.Command("iptables", "-t", "nat", "-F", chainName).Run()
-			return err
-		}
-	}
+	//	chainName := s.ContainerChainName(id)
+	//	for _, proto := range [2]string{"tcp", "udp"} {
+	//		cmd := exec.Command("iptables", "-t", "nat", "-A", chainName,
+	//			"-p", proto, "-d", containerIp,
+	//			"-j", "MASQUERADE", "--to-ports", fmt.Sprintf("%d-%d", portMin, portMax))
+	//		if out, err := cmd.CombinedOutput(); err != nil {
+	//			log.Errorf("error inserting static mapping rule: %s", string(out))
+	//			// clear the chain
+	//			exec.Command("iptables", "-t", "nat", "-F", chainName).Run()
+	//			return err
+	//		}
+	//	}
 	return nil
 }
 
@@ -158,7 +159,7 @@ func (s *sandbox) ClearStaticPortMapping(id string) error {
 	chainName := s.ContainerChainName(id)
 	cmd := exec.Command("iptables", "-t", "nat", "-F", chainName)
 	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("error clearing static mapping chain: %s", string(out))
+		log.Errorf("error clearing static mapping chain: %s", string(out))
 		return err
 	}
 	return nil

@@ -2,10 +2,11 @@ package config
 
 import (
 	"encoding/json"
-	"log"
 	"os"
 	"path"
 	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 const (
@@ -26,9 +27,11 @@ type MetadataServiceConfig struct {
 type TapconConfig struct {
 	Daemon           DaemonConfig `json:"daemon,omitempty"`
 	Metadata         MetadataServiceConfig
-	StaticPortBase   int `json:"static_port_base,omitempty"`
-	StaticPortMax    int `json:"static_port_max,omitempty"`
-	PortPerContainer int `json:"port_per_container,omitempty"`
+	StaticPortBase   int    `json:"static_port_base,omitempty"`
+	StaticPortMax    int    `json:"static_port_max,omitempty"`
+	PortPerContainer int    `json:"port_per_container,omitempty"`
+	LogLevel         int    `json:"log_level,omitempty"`
+	LogPath          string `json:"log_path,omitempty"`
 }
 
 const (
@@ -59,5 +62,25 @@ func InitConf(config_path string) {
 	}
 	if Config.PortPerContainer == 0 {
 		Config.PortPerContainer = DEFAULT_NUM_PER_CONTAINER
+	}
+	if Config.LogLevel == 0 {
+		log.SetLevel(log.DebugLevel)
+	} else if Config.LogLevel == 1 {
+		log.SetLevel(log.InfoLevel)
+	} else if Config.LogLevel == 2 {
+		log.SetLevel(log.WarnLevel)
+	} else {
+		log.SetLevel(log.ErrorLevel)
+	}
+
+	if Config.LogPath == "" {
+		log.SetOutput(os.Stdout)
+	} else {
+		f, err := os.OpenFile(Config.LogPath, os.O_APPEND, 0644)
+		if err != nil {
+			log.Fatalf("can not open log path %s to write\n",
+				Config.LogPath)
+		}
+		log.SetOutput(f)
 	}
 }

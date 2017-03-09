@@ -5,13 +5,16 @@ import (
 	"reflect"
 	"testing"
 
+	container_types "github.com/docker/docker/api/types/container"
 	api_types "github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/container"
+
+	log "github.com/Sirupsen/logrus"
 	docker_network "github.com/docker/docker/daemon/network"
 	docker_image "github.com/docker/docker/image"
 	nat "github.com/docker/go-connections/nat"
 	metadata "github.com/jerryz920/tapcon-monitor/statement"
-	"github.com/stretchr/testify/assert"
+	assert "github.com/stretchr/testify/require"
 )
 
 func newStubContainer(id, image, publicip, localip, localns string,
@@ -25,6 +28,9 @@ func newStubContainer(id, image, publicip, localip, localns string,
 		Networks: make(map[string]*docker_network.EndpointSettings),
 		Ports:    nat.PortMap{},
 	}
+	c.Config.HostConfig = &container_types.HostConfig{}
+	c.Config.HostConfig.NetworkMode = "userdefined"
+	c.listIp = StubListIP
 
 	//
 	t := reflect.TypeOf(c.Config.NetworkSettings.Ports)
@@ -42,9 +48,15 @@ func newStubContainer(id, image, publicip, localip, localns string,
 	ep.NetworkID = overlayId
 	ep.IPAddress = overlayIp
 	c.Config.NetworkSettings.Networks[overlayId] = ep
+
+	ep1 := &docker_network.EndpointSettings{new(api_types.EndpointSettings), false}
+	ep1.NetworkID = "not used"
+	ep1.IPAddress = "128.128.128.128" // a special test IP
+	c.Config.NetworkSettings.Networks["bridge"] = ep1
+
 	c.Config.ImageID = docker_image.ID(image)
-	c.StaticPortMin = staticPortMin
-	c.StaticPortMax = staticPortMax
+	c.StaticPortMin = 0 //staticPortMin
+	c.StaticPortMax = 0 //staticPortMax
 	c.VmIps = []instanceIp{
 		instanceIp{
 			ns: DEFAULT_NS,
@@ -55,7 +67,8 @@ func newStubContainer(id, image, publicip, localip, localns string,
 			ip: localip,
 		},
 	}
-	c.Ips = []string{overlayIp}
+	c.LocalNs = localns
+	c.Ips = []string{overlayIp, "128.128.128.128"}
 	c.Id = id
 
 	return c
@@ -120,6 +133,7 @@ func cacheTestDefault(cache *reconcileCache, t *testing.T) {
 	}
 	//t.Logf("server state: %v\nlocal state: %v\n", serverState, state)
 	//assert.Equal(t, *state, *serverState, "compare state")
+	t.Logf("cache state: %v\n\n, server state:%v\n\n", state, serverState)
 	AssertPrincipalEqual(t, state, serverState)
 
 }
@@ -321,19 +335,26 @@ func AssertPrincipalEqual(t *testing.T, p1 *metadata.Principal, p2 *metadata.Pri
 
 func TestNewContainer(t *testing.T) {
 	cache := newFreshReconcileCache(t)
+	log.Debugf("test fresh\n")
 	cacheTestDefault(cache, t)
 
 	cache = newUpToDateReconcileCache(t)
+	log.Debugf("test update to date\n")
 	cacheTestDefault(cache, t)
 
 	cache = newFactOnlyCache(t)
+	log.Debugf("test fact only\n")
 	cacheTestDefault(cache, t)
 	cache = newLinkOnlyCache(t)
+	log.Debugf("test link only\n")
 	cacheTestDefault(cache, t)
 	cache = newIpOnlyCache(t)
+	log.Debugf("test ip only\n")
 	cacheTestDefault(cache, t)
 	cache = newPortOnlyCache(t)
+	log.Debugf("test port only\n")
 	cacheTestDefault(cache, t)
 
+	log.Debugf("test new\n")
 	cacheTestNew(t)
 }

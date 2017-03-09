@@ -25,13 +25,13 @@ func main() {
 	args := flag.Args()
 	config.InitConf(".")
 
-	containerRoot := conf.Daemon.ContainerRoot
+	containerRoot := config.Config.Daemon.ContainerRoot
 	if len(args) >= 1 {
 		containerRoot = args[0]
 	}
 	log.Printf("container root: %s\n", containerRoot)
 
-	monitor, err := daemon.NewMonitor(containerRoot, nil, nil)
+	monitor, err := daemon.NewMonitor(containerRoot, nil, nil, false)
 	if err != nil {
 		log.Fatalf("error allocating new monitor:%s\n", err)
 	}

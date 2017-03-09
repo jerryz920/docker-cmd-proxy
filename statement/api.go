@@ -136,7 +136,15 @@ func principalResp(resp *http.Response) (*Principal, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}
-	decoder := json.NewDecoder(resp.Body)
+	buf := make([]byte, 0, resp.ContentLength)
+	debugBuf := bytes.NewBuffer(buf)
+	if _, err := debugBuf.ReadFrom(resp.Body); err != nil {
+		log.Printf("debug: content of resp body: %s\n", debugBuf.String())
+	}
+	if debugBuf.Len() != 0 {
+		log.Printf("debug buffer for principal map: %s\n", debugBuf.String())
+	}
+	decoder := json.NewDecoder(debugBuf)
 	result := Principal{}
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
@@ -145,7 +153,15 @@ func principalResp(resp *http.Response) (*Principal, error) {
 }
 
 func principalMap(resp *http.Response) (map[string]Principal, error) {
-	decoder := json.NewDecoder(resp.Body)
+	buf := make([]byte, 0, resp.ContentLength)
+	debugBuf := bytes.NewBuffer(buf)
+	if _, err := debugBuf.ReadFrom(resp.Body); err != nil {
+		log.Printf("debug: content of resp body: %s\n", debugBuf.String())
+	}
+	if debugBuf.Len() != 0 {
+		log.Printf("debug buffer for principal map: %s\n", debugBuf.String())
+	}
+	decoder := json.NewDecoder(debugBuf)
 	result := make(map[string]Principal)
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err

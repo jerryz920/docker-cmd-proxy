@@ -153,6 +153,9 @@ func (p *Principal) DelPortAlias(ns, ip, protocol string,
 	if protocol == "tcp" {
 		ptr := &p.Aliases.Ports[i].Ports.Tcp
 		*ptr = append((*ptr)[0:j], (*ptr)[j+1:]...)
+	} else {
+		ptr := &p.Aliases.Ports[i].Ports.Udp
+		*ptr = append((*ptr)[0:j], (*ptr)[j+1:]...)
 	}
 	return nil
 }

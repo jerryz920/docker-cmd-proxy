@@ -16,7 +16,8 @@ func init() {
 }
 
 func newStubMonitor(t *testing.T) *Monitor {
-	m, err := NewMonitor("../tests", metadata.NewStubApi(t), &fakeSandbox{})
+	m, err := NewMonitor("../tests", metadata.NewStubApi(t), &fakeSandbox{},
+		true)
 	if err != nil {
 		t.Fatalf("can not allocate monitor %v\n", err)
 	}

@@ -2,7 +2,6 @@ package docker
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"path"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/Sirupsen/logrus"
+	docker_type "github.com/docker/docker/api/types/container"
 	docker "github.com/docker/docker/container"
 	config "github.com/jerryz920/tapcon-monitor/config"
 	metadata "github.com/jerryz920/tapcon-monitor/statement"
@@ -44,6 +45,7 @@ type MemContainer struct {
 	PortAliasCreated bool // only applies to non-static ports
 	StaticPortMin    int
 	StaticPortMax    int
+	LocalNs          string
 	LastUpdate       time.Time
 	LastRefresh      time.Time
 	Cache            ReconcileCache
@@ -53,7 +55,7 @@ type MemContainer struct {
 	listIp           func(string) []string
 }
 
-func NewMemContainer(id, root string) *MemContainer {
+func NewMemContainer(id, root, localNs string) *MemContainer {
 	return &MemContainer{
 		Config:          nil,
 		Id:              id,
@@ -61,6 +63,7 @@ func NewMemContainer(id, root string) *MemContainer {
 		Root:            root,
 		listIp:          ListNsIps,
 		EventChan:       make(chan int),
+		LocalNs:         localNs,
 		Cache:           nil,
 		RefreshDuration: config.Config.Daemon.RefreshTimeout * time.Second,
 	}
@@ -80,7 +83,7 @@ func (c *MemContainer) OutOfDate() bool {
 	}
 
 	if c.LastUpdate.Before(result.ModTime()) {
-		log.Printf("%s config is newer\n", c.Id)
+		log.Debugf("%s config is newer", c.Id)
 		return true
 	}
 
@@ -93,7 +96,7 @@ func (c *MemContainer) OutOfDate() bool {
 	}
 
 	if c.LastUpdate.Before(result.ModTime()) {
-		log.Printf("%s host config is newer\n", c.Id)
+		log.Debugf("%s host config is newer", c.Id)
 		return true
 	}
 	return false
@@ -105,7 +108,7 @@ func (c *MemContainer) recordTimestamp() {
 	result, err := os.Stat(configFile)
 	if err != nil {
 		/// config and hostconfig gone, revert the loaded content
-		log.Printf("Warning: config file %s gone during loading\n", configFile)
+		log.Debugf("config file %s gone during loading", configFile)
 		c.Config = nil
 		return
 	}
@@ -116,7 +119,7 @@ func (c *MemContainer) recordTimestamp() {
 	result, err = os.Stat(hostConfig)
 	if err != nil {
 		// same as config file, but set Config as nil
-		log.Printf("Warning: host config file %s gone during loading\n", hostConfig)
+		log.Debugf("host config file %s gone during loading", hostConfig)
 		c.Config = nil
 		return
 	}
@@ -147,7 +150,7 @@ func (c *MemContainer) Load() bool {
 		c.recordTimestamp()
 		baseContainer := docker.NewBaseContainer(c.Id, c.Root)
 		if err := baseContainer.FromDisk(); err != nil {
-			log.Print("error in loading the container content: ", err)
+			log.Errorf("loading the container content: %v", err)
 			/// Revert to old timestamp so next time we try to update again
 			c.LastUpdate = oldTimestamp
 			return false
@@ -166,7 +169,7 @@ func (c *MemContainer) Load() bool {
 		}
 		ips := c.listIp(osNsName)
 		if len(ips) == 0 && !baseContainer.Config.NetworkDisabled {
-			log.Printf("There must be non-empty ip list for container")
+			log.Errorf("There must be non-empty ip list for container")
 			/// for this case the container is still loaded, but just not running
 			c.Ips = make([]string, 0)
 			return true
@@ -193,11 +196,33 @@ func (c *MemContainer) Running() bool {
 	return c.Config.State.Running
 }
 
+func IsBridgeNetwork(name string) bool {
+	mode := docker_type.NetworkMode(name)
+	return mode.IsBridge()
+}
+func IsUserOverlayNetwork(name string) bool {
+	mode := docker_type.NetworkMode(name)
+	return mode.IsUserDefined()
+}
+
 func (c *MemContainer) GetNsName(ip string) (string, error) {
 
-	for _, network := range c.Config.NetworkSettings.Networks {
+	for name, network := range c.Config.NetworkSettings.Networks {
 		if network.IPAddress == ip {
-			return network.NetworkID, nil
+			if IsUserOverlayNetwork(name) {
+				return network.NetworkID, nil
+			} else if IsBridgeNetwork(name) {
+				return c.LocalNs, nil
+			}
+		}
+	}
+	if c.Config.HostConfig.NetworkMode.IsUserDefined() {
+		// Then the user defined network, the network is "hidden" but it
+		// is there, and it will be the IP we are looking for.
+		for _, nip := range c.Ips {
+			if ip == nip {
+				return c.LocalNs, nil
+			}
 		}
 	}
 
@@ -205,7 +230,7 @@ func (c *MemContainer) GetNsName(ip string) (string, error) {
 	//	container. However, that IP address is not overlayed, nor
 	//  an instance IP, so we dont have ns name for it, and we wont
 	//  need to run attestation on this IP address
-	return "", fmt.Errorf("Can't find NS name for IP %s\n", ip)
+	return "", fmt.Errorf("Can't find NS name for IP %s", ip)
 }
 
 /// This function needs more elaboration: bridge, gw_bridge, and many other things
@@ -215,7 +240,7 @@ func IsConnectedToHostNetwork(name string) bool {
 
 func (c *MemContainer) IsContainerIp(ip string) bool {
 	for name, network := range c.Config.NetworkSettings.Networks {
-		if network.IPAddress == ip && IsConnectedToHostNetwork(name) {
+		if network.IPAddress == ip && IsBridgeNetwork(name) {
 			return true
 		}
 	}
@@ -232,17 +257,17 @@ func (c *MemContainer) IsContainerIp(ip string) bool {
 }
 
 func (c *MemContainer) Dump() {
-	log.Printf("------\nId: %s ", c.Id)
+	log.Infof("------\nId: %s ", c.Id)
 	if c.Config == nil {
-		log.Printf("no config\n")
+		log.Infof("no config")
 		return
 	} else {
-		log.Printf("\n")
+		log.Infof(" ")
 	}
-	log.Printf("State: %v\n", c.Config.Running)
-	log.Printf("Root: %s\n", c.Root)
-	log.Printf("Ips: %v\n", c.Ips)
-	log.Printf("StaticPorts: %d %d\n", c.StaticPortMin, c.StaticPortMax)
+	log.Infof("State: %v", c.Config.Running)
+	log.Infof("Root: %s", c.Root)
+	log.Infof("Ips: %v", c.Ips)
+	log.Infof("StaticPorts: %d %d", c.StaticPortMin, c.StaticPortMax)
 }
 
 func (c *MemContainer) ContainerFacts() []metadata.Statement {
@@ -263,7 +288,7 @@ func (c *MemContainer) ContainerPorts() []PortAlias {
 		for _, binding := range bindings {
 			p64, err := strconv.ParseInt(binding.HostPort, 10, 0)
 			if err != nil {
-				log.Printf("error parsing port alias %v\n", binding.HostPort)
+				log.Errorf("parsing port alias %v", binding.HostPort)
 				continue
 			}
 			p := int(p64)
@@ -300,7 +325,9 @@ func (c *MemContainer) Refresh() error {
 	now := time.Now()
 	if now.After(c.LastRefresh.Add(c.RefreshDuration)) {
 		if err := c.Cache.Refresh(); err != nil {
-			log.Printf("error in refreshing the cache: %v\n", err)
+			if c.Cache.Valid() {
+				log.Errorf("refreshing valid cache: %v", err)
+			}
 			return err
 		} else {
 			c.LastRefresh = now

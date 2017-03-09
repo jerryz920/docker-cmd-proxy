@@ -22,7 +22,7 @@ func TestMemContainerOutofDate(t *testing.T) {
 		t.Fatalf("error in container root conversion: %v\n", err)
 	}
 	root := filepath.Join(path, id)
-	c := NewMemContainer(tapconStringId(id), root)
+	c := NewMemContainer(tapconStringId(id), root, "")
 
 	config := filepath.Join(root, "config.v2.json")
 	hostconfig := filepath.Join(root, "hostconfig.json")
@@ -63,7 +63,7 @@ func TestMemContainerLoad(t *testing.T) {
 		t.Fatalf("error in container root conversion: %v\n", err)
 	}
 	root := filepath.Join(path, id)
-	c := NewMemContainer(tapconStringId(id), root)
+	c := NewMemContainer(tapconStringId(id), root, "")
 	c.listIp = StubListIP
 
 	assert.True(t, c.Load(), "c contains valid state")

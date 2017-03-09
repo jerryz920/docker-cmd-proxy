@@ -1,10 +1,11 @@
 package docker
 
 import (
-	"log"
 	"net"
 	"os/exec"
 	"strings"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type NetworkEvent struct {
@@ -18,7 +19,7 @@ func getOverlayNetworks() []string {
 	cmd := exec.Command("docker", "network", "ls", "--no-trunc", "-q", "-f", "driver=overlay")
 	out, err := cmd.Output()
 	if err != nil {
-		log.Printf("error in capturing network output: %v\n", err)
+		log.Errorf("error in capturing network output: %v", err)
 		return []string{}
 	}
 	trimmed := strings.Trim(string(out), "\n")
@@ -68,23 +69,23 @@ func (m *Monitor) NetworkChanges() ([]string, []string) {
 func (m *Monitor) setupInstanceIpInfo() {
 	pubIp, err := m.MetadataApi.MyPublicIp()
 	if err != nil {
-		log.Fatalf("can not obtain public IP info: %s\n", err)
+		log.Fatalf("can not obtain public IP info: %s", err)
 	}
 	m.publicIp = net.ParseIP(pubIp)
 	if m.publicIp == nil {
-		log.Fatalf("invalid IP: %s\n", pubIp)
+		log.Fatalf("invalid IP: %s", pubIp)
 	}
 	localIp, err := m.MetadataApi.MyLocalIp()
 	if err != nil {
-		log.Fatalf("can not obtain local IP info: %s\n", err)
+		log.Fatalf("can not obtain local IP info: %s", err)
 	}
 	m.localIp = net.ParseIP(localIp)
 	if m.localIp == nil {
-		log.Fatalf("invalid IP: %s\n", localIp)
+		log.Fatalf("invalid IP: %s", localIp)
 	}
 	localNs, err := m.MetadataApi.MyNs()
 	if err != nil {
-		log.Fatalf("can not obtain local Ns info: %s\n", err)
+		log.Fatalf("can not obtain local Ns info: %s", err)
 	}
 	m.localNs = localNs
 }

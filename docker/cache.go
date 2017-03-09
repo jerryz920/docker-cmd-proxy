@@ -2,9 +2,9 @@ package docker
 
 import (
 	"fmt"
-	"log"
 	"net"
 
+	log "github.com/Sirupsen/logrus"
 	metadata "github.com/jerryz920/tapcon-monitor/statement"
 )
 
@@ -26,7 +26,11 @@ func (r *reconcileCache) Refresh() error {
 	cid := tapconContainerId(r.c)
 	p, err := r.api.ShowPrincipal(cid)
 	if err != nil {
-		log.Printf("error in show principal: %s\n", err)
+		if r.serverState != nil {
+			log.Errorf("cache exists, but at server side: %s", err)
+		} else {
+			log.Debugf("unsynced principal in show: %s", err)
+		}
 		return err
 	}
 	r.serverState = p
@@ -47,7 +51,7 @@ func (r *reconcileCache) ReconcileFactStatement() error {
 		found := false
 		for _, fserver := range r.serverState.Statements {
 			if string(fclient) == fserver.Fact {
-				log.Printf("statement %s existed\n", fclient)
+				log.Debugf("statement %s existed", fclient)
 				break
 			}
 		}
@@ -75,7 +79,7 @@ func (r *reconcileCache) ReconcileImageLink() error {
 	link := tapconContainerImageId(r.c)
 	for _, slink := range r.serverState.Links {
 		if slink == link {
-			log.Printf("image existed\n")
+			log.Debugf("image %s existed", slink)
 			return nil
 		}
 	}
@@ -100,7 +104,10 @@ func (r *reconcileCache) ReconcileIpAlias() error {
 		}
 		nsName, err := r.c.GetNsName(cip)
 		if err != nil {
-			/// not an interested IP
+			// this is a workaround: the network address allocated is
+			// tenant network address, so it's using the instance local NS
+			// name
+
 			continue
 		}
 		alias := metadata.IpAlias{NsName: nsName, Ip: cip}
@@ -108,7 +115,7 @@ func (r *reconcileCache) ReconcileIpAlias() error {
 			err := r.api.CreateIPAlias(cid, nsName, net.ParseIP(cip))
 			if err != nil {
 				/// dont update this in server cache then
-				log.Printf("fail to create IP alias %s, %s\n", nsName, cip)
+				log.Errorf("fail to create IP alias %s, %s", nsName, cip)
 				continue
 			}
 		}
@@ -127,7 +134,7 @@ func (r *reconcileCache) ReconcileIpAlias() error {
 			err := r.api.DeleteIPAlias(cid, sip.NsName, net.ParseIP(sip.Ip))
 			if err != nil {
 				/// dont update this in server cache then
-				log.Printf("fail to delete IP alias %s, %s\n", sip.NsName, sip.Ip)
+				log.Errorf("fail to delete IP alias %s, %s", sip.NsName, sip.Ip)
 				/// still include this in server cache, as there is error deleting
 				latestIpAliases = append(latestIpAliases, sip)
 				continue
@@ -207,6 +214,9 @@ func (r *reconcileCache) ReconcilePortAlias() error {
 	ports := r.c.ContainerPorts()
 	clientOnlyPorts, serverOnlyPorts, mutualPorts := PortsAliasDiff(
 		ports, r.serverState)
+	log.Debugf("client ports: %v\n", clientOnlyPorts)
+	log.Debugf("server ports: %v\n", serverOnlyPorts)
+	log.Debugf("mutual ports: %v\n", mutualPorts)
 
 	for _, port := range clientOnlyPorts {
 		ip := net.ParseIP(port.ip)
@@ -256,19 +266,19 @@ func (r *reconcileCache) Create() error {
 	}
 
 	if err := r.ReconcileFactStatement(); err != nil {
-		log.Printf("error in posting facts: %v\n", err)
+		log.Errorf("error in posting facts: %v", err)
 	}
 
 	if err := r.ReconcileImageLink(); err != nil {
-		log.Printf("error in linking image: %v\n", err)
+		log.Errorf("error in linking image: %v", err)
 	}
 
 	if err := r.ReconcileIpAlias(); err != nil {
-		log.Printf("error in reconcile IP aliases: %v\n", err)
+		log.Errorf("error in reconcile IP aliases: %v", err)
 	}
 
 	if err := r.ReconcilePortAlias(); err != nil {
-		log.Printf("error in reconciling Port aliases: %v\n", err)
+		log.Errorf("error in reconciling Port aliases: %v", err)
 	}
 	return nil
 }

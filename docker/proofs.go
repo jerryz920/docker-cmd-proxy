@@ -2,7 +2,8 @@ package docker
 
 import (
 	"fmt"
-	"log"
+
+	log "github.com/Sirupsen/logrus"
 
 	metadata "github.com/jerryz920/tapcon-monitor/statement"
 )
@@ -22,7 +23,7 @@ func (m *Monitor) PostContainerFact(c *MemContainer) error {
 	if len(facts) > 0 {
 		return m.MetadataApi.PostProofForChild(cid, c.ContainerFacts())
 	}
-	log.Printf("no fact to post for container")
+	log.Debugf("no fact to post for container\n")
 	return nil
 }
 
