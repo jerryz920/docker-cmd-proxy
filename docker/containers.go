@@ -51,8 +51,6 @@ type MemContainer struct {
 	Cache            ReconcileCache
 	RefreshDuration  time.Duration
 	VmIps            []instanceIp
-	Posted           bool   /// Hotcloud17Workaround used
-	RepoStr          string /// Hotcloud17Workaround used
 	EventChan        chan int
 	listIp           func(string) []string
 }

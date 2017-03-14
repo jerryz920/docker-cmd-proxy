@@ -2,17 +2,10 @@ package docker
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 
 	log "github.com/Sirupsen/logrus"
 	metadata "github.com/jerryz920/tapcon-monitor/statement"
-)
-
-var (
-	Hotcloud17Workaround    = true
-	Hotcloud17TapconPort    = 1000
-	Hotcloud17ContainerPort = 2000
 )
 
 type ReconcileCache interface {
@@ -265,28 +258,6 @@ func (r *reconcileCache) ReconcilePortAlias() error {
 
 /// Create principal if necessary
 func (r *reconcileCache) Create() error {
-	if Hotcloud17Workaround {
-		log.Info("workaround")
-		if !r.c.Posted && r.c.RepoStr != "" {
-			r.c.Posted = true
-			for _, vmip := range r.c.VmIps {
-				if vmip.ns == DEFAULT_NS {
-					last := rand.Intn(100)
-					ip := fmt.Sprintf("192.1.100.%d", last+15)
-					log.Infof("vmip %s, ip %s, repo %s", vmip.ip, ip, r.c.RepoStr)
-					metadata.Hotcloud2017WorkaroundPostPrincipal(
-						fmt.Sprintf("%s:%d", vmip.ip, Hotcloud17TapconPort),
-						fmt.Sprintf("%s:%d", ip, Hotcloud17ContainerPort),
-						tapconContainerId(r.c),
-						r.c.RepoStr,
-						r.c.Config.ImageID.String(),
-					)
-				}
-
-			}
-		}
-		return nil
-	}
 
 	cid := tapconContainerId(r.c)
 	if r.serverState == nil {

@@ -237,18 +237,6 @@ func (m *Monitor) Keeper(c *MemContainer) {
 
 				//set repo string
 				/// Hotcloud2017Workaround
-				m.ImageLockCounter.Lock()
-				imgId := c.Config.ImageID.String()
-				partId, _ := parseVersion(imgId)
-				image := m.Images[partId]
-				if image.Config.Source.Repo != "" {
-					c.RepoStr = fmt.Sprintf("%s#%s", image.Config.Source.Repo,
-						image.Config.Source.Revision)
-				} else {
-					c.RepoStr = ""
-				}
-				m.ImageLockCounter.Unlock()
-
 				log.Debugf("container %s loaded, reconciling", c.Id)
 				c.Cache.Create()
 			} else {

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	log "github.com/Sirupsen/logrus"
 )
@@ -578,62 +577,4 @@ func (api *Api) MyPublicIp() (string, error) {
 		return "", err
 	}
 	return strResp(resp)
-}
-
-const (
-	Hotcloud2017WorkaroundMetadataServiceURL  = "http://10.10.2.3:7777/postInstanceSet"
-	Hotcloud2017WorkaroundMetadataServiceURL2 = "http://10.10.2.3:7777/updateSubjectSet"
-)
-
-func Hotcloud2017WorkaroundTemplate() string {
-	// we should use go-template but well now not familiar just use format string
-	return `{ "principal": "%s", "otherValues": [ "%s", "%s", "%s", "%s" ] }`
-}
-
-func Hotcloud2017WorkaroundTemplate2() string {
-	// we should use go-template but well now not familiar just use format string
-	return `{ "principal": "%s", "otherValues": [ "%s" ]}`
-}
-
-func Hotcloud2017WorkaroundPostPrincipal(
-	myName, principalName, cid, gitRepo, image string,
-) {
-
-	t1 := time.Now()
-	tplt := Hotcloud2017WorkaroundTemplate()
-	data := fmt.Sprintf(tplt, myName, principalName, cid, gitRepo, image)
-
-	log.Infof("data :%s", data)
-	resp, err := http.Post(Hotcloud2017WorkaroundMetadataServiceURL, "application/json", strings.NewReader(data))
-
-	var bodydata []byte
-	var str string
-	if err != nil {
-		bodydata, err = ioutil.ReadAll(resp.Body)
-		str = string(bodydata)
-		log.Errorf("error %v, content %s", err, str)
-		return
-	}
-	/// find a '' pair
-	bodydata, err = ioutil.ReadAll(resp.Body)
-	str = string(bodydata)
-	if err != nil {
-		log.Errorf("error %v, content %s", err, str)
-		return
-	}
-	keys := strings.Split(str, "'")
-	log.Infof("certificate keys: %s", keys[1])
-
-	tplt2 := Hotcloud2017WorkaroundTemplate2()
-	data2 := fmt.Sprintf(tplt2, principalName, keys[1])
-	resp, err = http.Post(Hotcloud2017WorkaroundMetadataServiceURL2, "application/json", strings.NewReader(data2))
-	if err != nil {
-		bodydata, err = ioutil.ReadAll(resp.Body)
-		str = string(bodydata)
-		log.Errorf("error %v, content %s", err, str)
-		return
-	}
-	t2 := time.Now()
-	log.Infof("tapcon timing %f", t2.Sub(t1).Seconds())
-
 }
