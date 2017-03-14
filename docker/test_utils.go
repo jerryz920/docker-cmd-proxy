@@ -37,3 +37,7 @@ func RmAllTestContainers() error {
 func initTestConfig() {
 	config.InitConf("../tests/")
 }
+
+func StubListIP(ns string) []string {
+	return []string{"192.168.1.1"}
+}

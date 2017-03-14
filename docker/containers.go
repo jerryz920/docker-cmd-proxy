@@ -51,6 +51,8 @@ type MemContainer struct {
 	Cache            ReconcileCache
 	RefreshDuration  time.Duration
 	VmIps            []instanceIp
+	Posted           bool   /// Hotcloud17Workaround used
+	RepoStr          string /// Hotcloud17Workaround used
 	EventChan        chan int
 	listIp           func(string) []string
 }
@@ -146,6 +148,7 @@ func (c *MemContainer) Load() bool {
 		// record timestamp. But if some update happens between loading and
 		// record timestamp, there will be missing of update, because the
 		// latest timestamp is recorded, whereas the older content is loaded
+		log.Debugf("loading container %s", c.Id)
 		oldTimestamp := c.LastUpdate
 		c.recordTimestamp()
 		baseContainer := docker.NewBaseContainer(c.Id, c.Root)
@@ -156,6 +159,7 @@ func (c *MemContainer) Load() bool {
 			return false
 		}
 		c.Config = baseContainer
+		log.Debugf("container status: %v", baseContainer.Running)
 
 		if !baseContainer.Running {
 			//log.Printf("stopped container %s\n", c.Id)
@@ -167,6 +171,7 @@ func (c *MemContainer) Load() bool {
 			c.Ips = make([]string, 0)
 			return true
 		}
+		log.Debugf("checking sandbox key: %s", osNsName)
 		ips := c.listIp(osNsName)
 		if len(ips) == 0 && !baseContainer.Config.NetworkDisabled {
 			log.Errorf("There must be non-empty ip list for container")
@@ -174,6 +179,7 @@ func (c *MemContainer) Load() bool {
 			c.Ips = make([]string, 0)
 			return true
 		}
+		log.Debugf("listing Ips: %s", ips)
 		c.Ips = ips
 		return true
 	}
@@ -257,17 +263,16 @@ func (c *MemContainer) IsContainerIp(ip string) bool {
 }
 
 func (c *MemContainer) Dump() {
-	log.Infof("------\nId: %s ", c.Id)
+	log.Infof("Id: %s", c.Id)
 	if c.Config == nil {
-		log.Infof("no config")
+		log.Infof("nil state")
 		return
-	} else {
-		log.Infof(" ")
 	}
 	log.Infof("State: %v", c.Config.Running)
 	log.Infof("Root: %s", c.Root)
 	log.Infof("Ips: %v", c.Ips)
 	log.Infof("StaticPorts: %d %d", c.StaticPortMin, c.StaticPortMax)
+	log.Infof("")
 }
 
 func (c *MemContainer) ContainerFacts() []metadata.Statement {

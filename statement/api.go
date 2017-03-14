@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"os"
 	"strings"
+	"time"
+
+	log "github.com/Sirupsen/logrus"
 )
 
 type MetadataAPI interface {
@@ -102,7 +104,7 @@ type Api struct {
 func ok(resp *http.Response) error {
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Error in reading metadata server result: %v\n", err)
+		log.Errorf("reading metadata server result: %v", err)
 		return err
 	}
 	res := string(data)
@@ -111,13 +113,13 @@ func ok(resp *http.Response) error {
 	if res == "true" {
 		return nil
 	}
-	return fmt.Errorf("metadata server returns error string: %s\n", res)
+	return fmt.Errorf("metadata server returns error string: %s", res)
 }
 
 func strResp(resp *http.Response) (string, error) {
 	data, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("Error in reading metadata server result: %v\n", err)
+		log.Errorf("reading metadata server result: %v", err)
 		return "", err
 	}
 	return string(data), nil
@@ -133,16 +135,16 @@ func jsonResp(resp *http.Response) ([]string, error) {
 }
 
 func principalResp(resp *http.Response) (*Principal, error) {
-	if resp.StatusCode == http.StatusNotFound {
-		return nil, nil
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("error showing principal: %d", resp.StatusCode)
 	}
 	buf := make([]byte, 0, resp.ContentLength)
 	debugBuf := bytes.NewBuffer(buf)
 	if _, err := debugBuf.ReadFrom(resp.Body); err != nil {
-		log.Printf("debug: content of resp body: %s\n", debugBuf.String())
+		log.Debugf("error reading content of resp body: %v", err)
 	}
 	if debugBuf.Len() != 0 {
-		log.Printf("debug buffer for principal map: %s\n", debugBuf.String())
+		log.Debugf("buffer for principal: ----\n%s\n---", debugBuf.String())
 	}
 	decoder := json.NewDecoder(debugBuf)
 	result := Principal{}
@@ -153,13 +155,16 @@ func principalResp(resp *http.Response) (*Principal, error) {
 }
 
 func principalMap(resp *http.Response) (map[string]Principal, error) {
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("status error in listing principals")
+	}
 	buf := make([]byte, 0, resp.ContentLength)
 	debugBuf := bytes.NewBuffer(buf)
 	if _, err := debugBuf.ReadFrom(resp.Body); err != nil {
-		log.Printf("debug: content of resp body: %s\n", debugBuf.String())
+		log.Debugf("content of resp body: %s", debugBuf.String())
 	}
 	if debugBuf.Len() != 0 {
-		log.Printf("debug buffer for principal map: %s\n", debugBuf.String())
+		log.Debugf("buffer for principal map: ----\n%s\n----", debugBuf.String())
 	}
 	decoder := json.NewDecoder(debugBuf)
 	result := make(map[string]Principal)
@@ -200,7 +205,7 @@ func NewBinaryFileReader(path string) (*Base64FileReader, error) {
 	go func() {
 		data, err := ioutil.ReadFile(path)
 		if err != nil {
-			fmt.Printf("Error in reading file %s: %s", path, err)
+			log.Errorf("reading file %s: %s", path, err)
 			encoder.Close()
 		}
 		e := base64.StdEncoding
@@ -223,7 +228,7 @@ func NewBase64FileReader(path string) (*Base64FileReader, error) {
 
 func (e *Base64FileReader) Close() {
 	if err := e.reader.Close(); err != nil {
-		log.Printf("error in closing uploading reader %s\n", err)
+		log.Errorf("closing uploading reader %s", err)
 	}
 	// we dont need to close writer as it would be closed by goroutine after writing
 	// is done
@@ -235,13 +240,11 @@ func (e *Base64FileReader) Read(data []byte) (int, error) {
 
 func (api *Api) GetAPI(schema, apiName string) string {
 	url := fmt.Sprintf("%s://%s/%s%s", schema, api.serverAddr, APIPath, apiName)
-	log.Printf("meta api: %s\n", url)
 	return url
 }
 
 func (api *Api) GetAwsAPI(schema, apiName string) string {
 	url := fmt.Sprintf("%s://%s/%s%s", schema, api.serverAddr, AwsAPIPath, apiName)
-	log.Printf("aws api: %s\n", url)
 	return url
 }
 
@@ -274,7 +277,7 @@ func (api *Api) DoPost(apiname string, reader io.Reader, queries []urlQuery) (*h
 	// it given the time budget at the moment.
 	req, err := http.NewRequest(http.MethodPost, api.GetAPI("http", apiname), reader)
 	if err != nil {
-		log.Printf("error in constructing request: %v\n", err)
+		log.Errorf("constructing request: %v", err)
 		return nil, err
 	}
 	if len(queries) > 0 {
@@ -284,13 +287,14 @@ func (api *Api) DoPost(apiname string, reader io.Reader, queries []urlQuery) (*h
 		}
 		req.URL.RawQuery = query.Encode()
 	}
+	log.Debugf("meta api: %s", req.URL.String())
 	return api.client.Do(req)
 }
 
 func (api *Api) DoGet(apiname string, queries []urlQuery) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, api.GetAPI("http", apiname), nil)
 	if err != nil {
-		log.Printf("error in constructing request: %v\n", err)
+		log.Errorf("constructing request: %v", err)
 		return nil, err
 	}
 	if len(queries) > 0 {
@@ -300,13 +304,14 @@ func (api *Api) DoGet(apiname string, queries []urlQuery) (*http.Response, error
 		}
 		req.URL.RawQuery = query.Encode()
 	}
+	log.Debugf("meta api: %s", req.URL.String())
 	return api.client.Do(req)
 }
 
 func (api *Api) DoAwsGet(apiname string, queries []urlQuery) (*http.Response, error) {
 	req, err := http.NewRequest(http.MethodGet, api.GetAwsAPI("http", apiname), nil)
 	if err != nil {
-		log.Printf("error in constructing request: %v\n", err)
+		log.Errorf("constructing request: %v", err)
 		return nil, err
 	}
 	if len(queries) > 0 {
@@ -334,7 +339,7 @@ func (api *Api) UploadVmImage(name, location, gitrepo, gitrev, format string, en
 	}
 
 	if err != nil {
-		log.Printf("error in opening the image file %s: %v\n", location, err)
+		log.Errorf("opening the image file %s: %v", location, err)
 		return err
 	}
 
@@ -347,7 +352,7 @@ func (api *Api) UploadVmImage(name, location, gitrepo, gitrev, format string, en
 			qImageName, name,
 			qImageDiskFormat, format))
 	if err != nil {
-		fmt.Printf("error in uploading image: %v\n", err)
+		log.Errorf("uploading image: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -356,7 +361,7 @@ func (api *Api) UploadVmImage(name, location, gitrepo, gitrev, format string, en
 func (api *Api) MyId() (string, error) {
 	resp, err := api.DoGet(kViewPrincipalName, pack())
 	if err != nil {
-		fmt.Printf("error in view principal ID: %v\n", err)
+		log.Errorf("view principal ID: %v", err)
 		return "", err
 	}
 	return strResp(resp)
@@ -365,7 +370,7 @@ func (api *Api) MyId() (string, error) {
 func (api *Api) MyNs() (string, error) {
 	resp, err := api.DoGet(kViewNs, pack())
 	if err != nil {
-		fmt.Printf("error in view NS ID: %v\n", err)
+		log.Errorf("view NS ID: %v", err)
 		return "", err
 	}
 	return strResp(resp)
@@ -374,7 +379,7 @@ func (api *Api) MyNs() (string, error) {
 func (api *Api) CreatePrincipal(name string) error {
 	resp, err := api.DoPost(kCreatePrincipal, nil, pack(qPrincipalName, name))
 	if err != nil {
-		fmt.Printf("error in creating principal: %v\n", err)
+		log.Errorf("creating principal: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -383,7 +388,7 @@ func (api *Api) CreatePrincipal(name string) error {
 func (api *Api) ListPrincipals() (map[string]Principal, error) {
 	resp, err := api.DoGet(kListPrincipals, pack())
 	if err != nil {
-		fmt.Printf("error in listing principals: %v\n", err)
+		log.Errorf("listing principals: %v", err)
 		return nil, err
 	}
 	return principalMap(resp)
@@ -392,7 +397,7 @@ func (api *Api) ListPrincipals() (map[string]Principal, error) {
 func (api *Api) ShowPrincipal(target string) (*Principal, error) {
 	resp, err := api.DoGet(kShowPrincipal, pack(qTarget, target))
 	if err != nil {
-		fmt.Printf("error in listing principals: %v\n", err)
+		log.Errorf("show principal: %v", err)
 		return nil, err
 	}
 	return principalResp(resp)
@@ -402,7 +407,7 @@ func (api *Api) ShowPrincipal(target string) (*Principal, error) {
 func (api *Api) DeletePrincipal(name string) error {
 	resp, err := api.DoPost(kDeletePrincipal, nil, pack(qPrincipalName, name))
 	if err != nil {
-		fmt.Printf("error in deleting principal: %v\n", err)
+		log.Errorf("deleting principal: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -411,7 +416,7 @@ func (api *Api) DeletePrincipal(name string) error {
 func (api *Api) CreateNs(ns string) error {
 	resp, err := api.DoPost(kCreateNs, nil, pack(qNsName, ns))
 	if err != nil {
-		fmt.Printf("error in creating ns: %v\n", err)
+		log.Errorf("creating ns: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -420,7 +425,7 @@ func (api *Api) CreateNs(ns string) error {
 func (api *Api) JoinNs(ns string) error {
 	resp, err := api.DoPost(kJoinNs, nil, pack(qNsName, ns))
 	if err != nil {
-		fmt.Printf("error in joining ns: %v\n", err)
+		log.Errorf("joining ns: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -429,7 +434,7 @@ func (api *Api) JoinNs(ns string) error {
 func (api *Api) LeaveNs(ns string) error {
 	resp, err := api.DoPost(kLeaveNs, nil, pack(qNsName, ns))
 	if err != nil {
-		fmt.Printf("error in leaving ns: %v\n", err)
+		log.Errorf("leaving ns: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -438,7 +443,7 @@ func (api *Api) LeaveNs(ns string) error {
 func (api *Api) DeleteNs(ns string) error {
 	resp, err := api.DoPost(kDeleteNs, nil, pack(qNsName, ns))
 	if err != nil {
-		fmt.Printf("error in leaving ns: %v\n", err)
+		log.Errorf("deleting ns: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -448,7 +453,7 @@ func (api *Api) CreateIPAlias(name string, ns string, ip net.IP) error {
 	resp, err := api.DoPost(kCreateIPAlias, nil, pack(qNsName, ns,
 		qPrincipalName, name, qIpAlias, ip.String()))
 	if err != nil {
-		fmt.Printf("error in creating Ip alias: %v\n", err)
+		log.Errorf("creating Ip alias: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -458,7 +463,7 @@ func (api *Api) DeleteIPAlias(name string, ns string, ip net.IP) error {
 	resp, err := api.DoPost(kDeleteIPAlias, nil, pack(qNsName, ns,
 		qPrincipalName, name, qIpAlias, ip.String()))
 	if err != nil {
-		fmt.Printf("error in deleting Ip alias: %v\n", err)
+		log.Errorf("deleting Ip alias: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -470,7 +475,7 @@ func (api *Api) CreatePortAlias(name string, ns string, ip net.IP, protocol stri
 		qPrincipalName, name, qIpAlias, ip.String(), qProtocol, protocol,
 		qPortMin, fmt.Sprintf("%d", portMin), qPortMax, fmt.Sprintf("%d", portMax)))
 	if err != nil {
-		fmt.Printf("error in creating port alias: %v\n", err)
+		log.Errorf("creating port alias: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -482,7 +487,7 @@ func (api *Api) DeletePortAlias(name string, ns string, ip net.IP, protocol stri
 		qPrincipalName, name, qIpAlias, ip.String(), qProtocol, protocol,
 		qPortMin, fmt.Sprintf("%d", portMin), qPortMax, fmt.Sprintf("%d", portMax)))
 	if err != nil {
-		fmt.Printf("error in deleting port alias: %v\n", err)
+		log.Errorf("deleting port alias: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -492,7 +497,7 @@ func (api *Api) postProof(target string, statements []Statement, apiname string)
 	buf := bytes.NewBuffer(make([]byte, 0))
 	encoder := json.NewEncoder(buf)
 	if err := encoder.Encode(statements); err != nil {
-		fmt.Printf("error in encoding statements: %v\n", err)
+		log.Errorf("encoding statements: %v", err)
 		return err
 	}
 
@@ -500,7 +505,7 @@ func (api *Api) postProof(target string, statements []Statement, apiname string)
 	resp, err := api.DoPost(apiname, nil, pack(qTarget, target,
 		qStatements, b64Statements))
 	if err != nil {
-		fmt.Printf("error in posting proofs: %v\n", err)
+		log.Errorf("posting proofs: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -518,7 +523,7 @@ func (api *Api) linkProof(target string, dependencies []string, apiname string) 
 	buf := bytes.NewBuffer(make([]byte, 0))
 	encoder := json.NewEncoder(buf)
 	if err := encoder.Encode(dependencies); err != nil {
-		fmt.Printf("error in encoding statements: %v\n", err)
+		log.Errorf("encoding statements: %v", err)
 		return err
 	}
 
@@ -526,7 +531,7 @@ func (api *Api) linkProof(target string, dependencies []string, apiname string) 
 	resp, err := api.DoPost(apiname, nil, pack(qTarget, target,
 		qDependencies, b64Dependencies))
 	if err != nil {
-		fmt.Printf("error in linking proofs: %v\n", err)
+		log.Errorf("linking proofs: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -544,14 +549,14 @@ func (api *Api) SelfCertify(statements []Statement) error {
 	buf := bytes.NewBuffer(make([]byte, 0))
 	encoder := json.NewEncoder(buf)
 	if err := encoder.Encode(statements); err != nil {
-		fmt.Printf("error in encoding statements: %v\n", err)
+		fmt.Printf("error in encoding statements: %v", err)
 		return err
 	}
 
 	b64Statements := base64.StdEncoding.EncodeToString(buf.Bytes())
 	resp, err := api.DoPost(kSelfCertify, nil, pack(qStatements, b64Statements))
 	if err != nil {
-		fmt.Printf("error in posting proofs: %v\n", err)
+		log.Errorf("posting proofs: %v", err)
 		return err
 	}
 	return ok(resp)
@@ -560,7 +565,7 @@ func (api *Api) SelfCertify(statements []Statement) error {
 func (api *Api) MyLocalIp() (string, error) {
 	resp, err := api.DoAwsGet(kViewLocalIP, pack())
 	if err != nil {
-		fmt.Printf("error in view local IP: %v\n", err)
+		log.Errorf("view local IP: %v", err)
 		return "", err
 	}
 	return strResp(resp)
@@ -569,8 +574,66 @@ func (api *Api) MyLocalIp() (string, error) {
 func (api *Api) MyPublicIp() (string, error) {
 	resp, err := api.DoAwsGet(kViewPublicIP, pack())
 	if err != nil {
-		fmt.Printf("error in view public IP: %v\n", err)
+		log.Errorf("view public IP: %v", err)
 		return "", err
 	}
 	return strResp(resp)
+}
+
+const (
+	Hotcloud2017WorkaroundMetadataServiceURL  = "http://10.10.2.3:7777/postInstanceSet"
+	Hotcloud2017WorkaroundMetadataServiceURL2 = "http://10.10.2.3:7777/updateSubjectSet"
+)
+
+func Hotcloud2017WorkaroundTemplate() string {
+	// we should use go-template but well now not familiar just use format string
+	return `{ "principal": "%s", "otherValues": [ "%s", "%s", "%s", "%s" ] }`
+}
+
+func Hotcloud2017WorkaroundTemplate2() string {
+	// we should use go-template but well now not familiar just use format string
+	return `{ "principal": "%s", "otherValues": [ "%s" ]}`
+}
+
+func Hotcloud2017WorkaroundPostPrincipal(
+	myName, principalName, cid, gitRepo, image string,
+) {
+
+	t1 := time.Now()
+	tplt := Hotcloud2017WorkaroundTemplate()
+	data := fmt.Sprintf(tplt, myName, principalName, cid, gitRepo, image)
+
+	log.Infof("data :%s", data)
+	resp, err := http.Post(Hotcloud2017WorkaroundMetadataServiceURL, "application/json", strings.NewReader(data))
+
+	var bodydata []byte
+	var str string
+	if err != nil {
+		bodydata, err = ioutil.ReadAll(resp.Body)
+		str = string(bodydata)
+		log.Errorf("error %v, content %s", err, str)
+		return
+	}
+	/// find a '' pair
+	bodydata, err = ioutil.ReadAll(resp.Body)
+	str = string(bodydata)
+	if err != nil {
+		log.Errorf("error %v, content %s", err, str)
+		return
+	}
+	keys := strings.Split(str, "'")
+	log.Infof("certificate keys: %s", keys[1])
+
+	tplt2 := Hotcloud2017WorkaroundTemplate2()
+	data2 := fmt.Sprintf(tplt2, principalName, keys[1])
+	resp, err = http.Post(Hotcloud2017WorkaroundMetadataServiceURL2, "application/json", strings.NewReader(data2))
+	if err != nil {
+		bodydata, err = ioutil.ReadAll(resp.Body)
+		str = string(bodydata)
+		log.Errorf("error %v, content %s", err, str)
+		return
+	}
+	t2 := time.Now()
+	log.Infof("tapcon timing %f", t2.Sub(t1).Seconds())
+
 }

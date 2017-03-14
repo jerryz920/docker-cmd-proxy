@@ -52,10 +52,6 @@ func TestMemContainerOutofDate(t *testing.T) {
 	assert.True(t, c.OutOfDate(), "config changed")
 }
 
-func StubListIP(ns string) []string {
-	return []string{"192.168.1.1"}
-}
-
 func TestMemContainerLoad(t *testing.T) {
 	id := "b3f37be527fa2e44d4916497d22ed635d21e10d0b991682939365c0e6b1f5101"
 	path, err := filepath.Abs("../tests/backups/")

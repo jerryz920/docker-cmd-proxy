@@ -92,9 +92,10 @@ func (i *MemImage) Load() error {
 }
 
 func (i *MemImage) Dump() {
-	log.Infof("-----ImageId: %s", i.Id)
+	log.Infof("ImageId: %s", i.Id)
 	log.Infof("root: %s", i.Root)
 	log.Infof("Source: %v", i.Config.Source)
+	log.Infof("")
 }
 
 func parseVersion(version string) (string, error) {

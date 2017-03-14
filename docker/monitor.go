@@ -193,14 +193,14 @@ func (m *Monitor) containerEntryUpdate(id string, create bool) {
 		m.ContainerLock.Lock()
 		defer m.ContainerLock.Unlock()
 		if c, ok := m.Containers[cid]; ok {
-			c.EventChan <- CONTAINER_DEAD
+			log.Infof("removing container entry: %s", cid)
 			delete(m.Containers, cid)
+			c.EventChan <- CONTAINER_DEAD
 		}
 	}
 }
 
 func (m *Monitor) Keeper(c *MemContainer) {
-	c.Refresh()
 	//cid := tapconContainerId(c)
 	//m.SandboxBuilder.SetupContainerChain(cid)
 	/// Apply restriction on container
@@ -234,8 +234,25 @@ func (m *Monitor) Keeper(c *MemContainer) {
 				//}
 				/// no matter refresh success or fail, we will resync the
 				// server cache (maybe empty) and client side status
+
+				//set repo string
+				/// Hotcloud2017Workaround
+				m.ImageLockCounter.Lock()
+				imgId := c.Config.ImageID.String()
+				partId, _ := parseVersion(imgId)
+				image := m.Images[partId]
+				if image.Config.Source.Repo != "" {
+					c.RepoStr = fmt.Sprintf("%s#%s", image.Config.Source.Repo,
+						image.Config.Source.Revision)
+				} else {
+					c.RepoStr = ""
+				}
+				m.ImageLockCounter.Unlock()
+
+				log.Debugf("container %s loaded, reconciling", c.Id)
 				c.Cache.Create()
 			} else {
+				log.Debugf("container %s removed, reconciling", c.Id)
 				c.Cache.Remove()
 				//m.SandboxBuilder.ClearStaticPortMapping(cid)
 				//m.deallocateStaticPortByContainer(c)
@@ -282,7 +299,8 @@ func (m *Monitor) containerEntriesReload() {
 	for cid, c := range m.Containers {
 		found := false
 		for _, f := range files {
-			if cid == f.Name() {
+			fcid := tapconStringId(f.Name())
+			if cid == fcid {
 				found = true
 				break
 			}
@@ -294,12 +312,21 @@ func (m *Monitor) containerEntriesReload() {
 	}
 
 	for _, cid := range toDelete {
+		log.Infof("removing container entry: %s", cid)
 		delete(m.Containers, cid)
 	}
 
 	if serverState != nil {
 		for pname, _ := range serverState {
-			if _, ok := m.Containers[pname]; !ok {
+			found := false
+			for _, f := range files {
+				cid := tapconStringId(f.Name())
+				if pname == cid {
+					found = true
+					break
+				}
+			}
+			if !found {
 				log.Infof("staled principal %s", pname)
 				m.MetadataApi.DeletePrincipal(pname)
 			}
@@ -324,6 +351,9 @@ func (m *Monitor) allocateNewMemContainer(id, root string) {
 			ip: m.publicIp.String(),
 		},
 	}
+
+	log.Infof("loading container entry: %s", id)
+
 	m.Containers[id] = c
 	m.Watcher.Add(root)
 	go m.Keeper(c)
@@ -461,23 +491,28 @@ func (m *Monitor) Dump() {
 		m.localNs)
 	result := make([]string, 0, len(m.availableStaticPorts))
 	for i, p := range m.availableStaticPorts {
-		if p == 0 {
+		// This may have memory ordering issue as we didn't use barrier. But
+		// it doesn't matter
+		if p != 0 {
 			pmin := m.staticPortMin + i*m.staticPortPerContainer
 			pmax := pmin + m.staticPortPerContainer - 1
 			result = append(result, fmt.Sprintf("%d-%d", pmin, pmax))
 		}
 	}
 	log.Infof("allocated ports: %v", result)
-	log.Infof("****Containers")
 	m.ContainerLock.Lock()
+	log.Infof("-------Containers---------")
+
 	for _, c := range m.Containers {
 		c.Dump()
 	}
+	log.Infof("--------------------------")
 	m.ContainerLock.Unlock()
-	log.Infof("****Images")
+	log.Infof("----------Images----------")
 	m.ImageLockCounter.Lock()
 	for _, i := range m.Images {
 		i.Dump()
 	}
+	log.Infof("--------------------------")
 	m.ImageLockCounter.Unlock()
 }
