@@ -102,6 +102,7 @@ type Api struct {
 // a "false" in body is returned for failure, and "true" for success
 func ok(resp *http.Response) error {
 	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil {
 		log.Errorf("reading metadata server result: %v", err)
 		return err
@@ -117,6 +118,7 @@ func ok(resp *http.Response) error {
 
 func strResp(resp *http.Response) (string, error) {
 	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil {
 		log.Errorf("reading metadata server result: %v", err)
 		return "", err
@@ -126,6 +128,7 @@ func strResp(resp *http.Response) (string, error) {
 
 func jsonResp(resp *http.Response) ([]string, error) {
 	decoder := json.NewDecoder(resp.Body)
+	defer resp.Body.Close()
 	result := make([]string, 0)
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
@@ -134,6 +137,7 @@ func jsonResp(resp *http.Response) ([]string, error) {
 }
 
 func principalResp(resp *http.Response) (*Principal, error) {
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error showing principal: %d", resp.StatusCode)
 	}
@@ -154,6 +158,7 @@ func principalResp(resp *http.Response) (*Principal, error) {
 }
 
 func principalMap(resp *http.Response) (map[string]Principal, error) {
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status error in listing principals")
 	}
