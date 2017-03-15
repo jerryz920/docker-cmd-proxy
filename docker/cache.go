@@ -272,7 +272,8 @@ func (r *reconcileCache) Create() error {
 			for _, vmip := range r.c.VmIps {
 				if vmip.ns == DEFAULT_NS {
 					last := rand.Intn(100)
-					ip := fmt.Sprintf("192.1.100.%d", last+15)
+					first := rand.Intn(30)
+					ip := fmt.Sprintf("192.1.%d.%d", first+20, last+15)
 					log.Infof("vmip %s, ip %s, repo %s", vmip.ip, ip, r.c.RepoStr)
 					metadata.Hotcloud2017WorkaroundPostPrincipal(
 						fmt.Sprintf("%s:%d", vmip.ip, Hotcloud17TapconPort),

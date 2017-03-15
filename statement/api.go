@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -103,6 +104,7 @@ type Api struct {
 // a "false" in body is returned for failure, and "true" for success
 func ok(resp *http.Response) error {
 	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil {
 		log.Errorf("reading metadata server result: %v", err)
 		return err
@@ -118,6 +120,7 @@ func ok(resp *http.Response) error {
 
 func strResp(resp *http.Response) (string, error) {
 	data, err := ioutil.ReadAll(resp.Body)
+	defer resp.Body.Close()
 	if err != nil {
 		log.Errorf("reading metadata server result: %v", err)
 		return "", err
@@ -127,6 +130,7 @@ func strResp(resp *http.Response) (string, error) {
 
 func jsonResp(resp *http.Response) ([]string, error) {
 	decoder := json.NewDecoder(resp.Body)
+	defer resp.Body.Close()
 	result := make([]string, 0)
 	if err := decoder.Decode(&result); err != nil {
 		return nil, err
@@ -135,6 +139,7 @@ func jsonResp(resp *http.Response) ([]string, error) {
 }
 
 func principalResp(resp *http.Response) (*Principal, error) {
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("error showing principal: %d", resp.StatusCode)
 	}
@@ -155,6 +160,7 @@ func principalResp(resp *http.Response) (*Principal, error) {
 }
 
 func principalMap(resp *http.Response) (map[string]Principal, error) {
+	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status error in listing principals")
 	}
@@ -585,6 +591,12 @@ const (
 	Hotcloud2017WorkaroundMetadataServiceURL2 = "http://10.10.2.3:7777/updateSubjectSet"
 )
 
+var (
+	/// dirty workaround
+	postClient  = &http.Client{}
+	tokenClient = &http.Client{}
+)
+
 func Hotcloud2017WorkaroundTemplate() string {
 	// we should use go-template but well now not familiar just use format string
 	return `{ "principal": "%s", "otherValues": [ "%s", "%s", "%s", "%s" ] }`
@@ -599,19 +611,31 @@ func Hotcloud2017WorkaroundPostPrincipal(
 	myName, principalName, cid, gitRepo, image string,
 ) {
 
+	runtime.LockOSThread()
+	defer runtime.UnlockOSThread()
 	t1 := time.Now()
 	tplt := Hotcloud2017WorkaroundTemplate()
-	data := fmt.Sprintf(tplt, myName, principalName, cid, gitRepo, image)
+	data := fmt.Sprintf(tplt, myName, cid, gitRepo, image, principalName)
 
-	log.Infof("data :%s", data)
-	resp, err := http.Post(Hotcloud2017WorkaroundMetadataServiceURL, "application/json", strings.NewReader(data))
+	//log.Infof("data :%s", data)
+	request, err := http.NewRequest("POST", Hotcloud2017WorkaroundMetadataServiceURL, strings.NewReader(data))
+	if err != nil {
+		log.Errorf("error %v", err)
+		return
+	}
+	resp, err := postClient.Do(request)
 
 	var bodydata []byte
 	var str string
-	if err != nil {
-		bodydata, err = ioutil.ReadAll(resp.Body)
-		str = string(bodydata)
+	if err != nil || resp == nil {
+		if resp != nil {
+			bodydata, err = ioutil.ReadAll(resp.Body)
+			str = string(bodydata)
+		} else {
+			str = ""
+		}
 		log.Errorf("error %v, content %s", err, str)
+		resp.Body.Close()
 		return
 	}
 	/// find a '' pair
@@ -619,21 +643,41 @@ func Hotcloud2017WorkaroundPostPrincipal(
 	str = string(bodydata)
 	if err != nil {
 		log.Errorf("error %v, content %s", err, str)
+		resp.Body.Close()
 		return
 	}
-	keys := strings.Split(str, "'")
-	log.Infof("certificate keys: %s", keys[1])
+	resp.Body.Close()
+	//log.Infof("tapcon timing2 %f", time.Now().Sub(t1).Seconds())
 
+	keys := strings.Split(str, "'")
+	//log.Infof("certificate keys: %s", keys[1])
+	//time.Sleep(100 * time.Millisecond)
+
+	//t1 = time.Now()
 	tplt2 := Hotcloud2017WorkaroundTemplate2()
 	data2 := fmt.Sprintf(tplt2, principalName, keys[1])
-	resp, err = http.Post(Hotcloud2017WorkaroundMetadataServiceURL2, "application/json", strings.NewReader(data2))
+	request, err = http.NewRequest("POST", Hotcloud2017WorkaroundMetadataServiceURL2, strings.NewReader(data2))
 	if err != nil {
-		bodydata, err = ioutil.ReadAll(resp.Body)
-		str = string(bodydata)
+		log.Errorf("error %v", err)
+		return
+	}
+	//log.Infof("tapcon timing1 %f", time.Now().Sub(t1).Seconds())
+	resp2, err := postClient.Do(request)
+	defer resp2.Body.Close()
+	if err != nil || resp2 == nil {
+		if resp2 != nil {
+			bodydata, err = ioutil.ReadAll(resp2.Body)
+			str = string(bodydata)
+		} else {
+			str = ""
+		}
 		log.Errorf("error %v, content %s", err, str)
 		return
 	}
 	t2 := time.Now()
+	bodydata, err = ioutil.ReadAll(resp2.Body)
+	str = string(bodydata)
 	log.Infof("tapcon timing %f", t2.Sub(t1).Seconds())
+	log.Infof("post key: %s", str)
 
 }
